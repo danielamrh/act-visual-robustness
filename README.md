@@ -25,6 +25,7 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 | Notebook | What it does |
 |---|---|
 | [`01_eval_pretrained`](notebooks/01_eval_pretrained.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/01_eval_pretrained.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate the pretrained LeRobot ACT checkpoint (success rate, 95% CI, failure stages) |
+| [`02_train_act`](notebooks/02_train_act.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/02_train_act.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Train ACT from scratch, resumable across Colab sessions (checkpoints mirrored to Drive) |
 
 Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive under
 `MyDrive/act_robustness/`. Every run records the git commit it was produced with.
@@ -35,7 +36,7 @@ Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive u
 configs/      one config per experiment
 notebooks/    Colab entry points
 results/      final tables, plots and GIFs
-src/avr/      project code (eval statistics, later: encoders, perturbations, analysis)
+src/avr/      project code: CLI wrappers, checkpoint sync, log parsing, eval statistics
 tests/        unit tests
 ```
 
