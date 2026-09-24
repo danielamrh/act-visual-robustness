@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "avr"
+version = "0.1.0"
+description = "Visual robustness of ACT imitation-learning policies in simulation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+# Simulation + training stack. LeRobot 0.6.x needs Python >= 3.12 (Colab default).
+sim = [
+    "lerobot[aloha]==0.6.1",
+]
+dev = [
+    "pytest",
+    "nbstripout",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

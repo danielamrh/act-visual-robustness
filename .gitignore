@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Training / eval outputs (live on Google Drive, not in git)
+outputs/
+checkpoints/
+wandb/
+*.pt
+*.pth
+*.safetensors
+*.mp4
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
