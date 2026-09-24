@@ -1,0 +1,15 @@
+# Placeholder for `labmaze`, a dm-control dependency that has no wheel for
+# Python >= 3.13 and needs Bazel to build from source. labmaze is only used by
+# dm_control.locomotion mazes, which gym-aloha never imports. Installing this
+# stub first lets pip resolve dm-control without building labmaze.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labmaze"
+version = "1.0.6"
+description = "Empty placeholder for labmaze (see comment in pyproject.toml)"
+
+[tool.setuptools]
+packages = ["labmaze"]
