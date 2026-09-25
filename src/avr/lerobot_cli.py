@@ -17,7 +17,10 @@ def eval_cmd(
     output_dir: str,
     task: str = "AlohaTransferCube-v0",
     n_episodes: int = 50,
-    batch_size: int = 10,
+    # Envs step sequentially anyway, so a small batch costs no time. LeRobot
+    # keeps every rendered frame of the first batches for videos: 25 envs x 400
+    # steps x 640x480x3 is ~9 GB and gets the process OOM-killed on Colab.
+    batch_size: int = 5,
     device: str = "cuda",
 ) -> list[str]:
     return [
@@ -45,6 +48,7 @@ def train_cmd(
     log_freq: int = 200,
     env_eval_freq: int = 20_000,
     eval_episodes: int = 10,
+    eval_batch_size: int = 5,
     num_workers: int = 2,
     seed: int = 1000,
     use_amp: bool = False,
@@ -70,7 +74,7 @@ def train_cmd(
         f"--log_freq={log_freq}",
         f"--env_eval_freq={env_eval_freq}",
         f"--eval.n_episodes={eval_episodes}",
-        f"--eval.batch_size={eval_episodes}",
+        f"--eval.batch_size={eval_batch_size}",
         "--eval.use_async_envs=false",
         f"--num_workers={num_workers}",
         f"--seed={seed}",
