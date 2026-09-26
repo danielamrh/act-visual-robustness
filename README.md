@@ -18,7 +18,27 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 
 ## Results
 
-*Coming soon.*
+### Step 1b · Pretrained checkpoint reproduces the reference
+
+`lerobot/act_aloha_sim_transfer_cube_human` on `AlohaTransferCube-v0`, 500 episodes (env seeds 1000–1499),
+LeRobot 0.6.1 / MuJoCo 3.8.1 (checkpoint migrated to the processor format).
+
+| | Success rate | 95% CI |
+|---|---|---|
+| Model card (LeRobot) | 83.0 % | – |
+| **This repo** | **83.4 %** (417/500) | 79.9 – 86.4 % |
+
+Where the 83 failures stop (highest reward stage reached):
+
+| Stage | Meaning | Episodes |
+|---|---|---|
+| 0 | never touched the cube | 8 (1.6 %) |
+| 1 | touched, but not lifted (grasp failure) | 29 (5.8 %) |
+| 2 | lifted, but never reached the left gripper (transport / handover failure) | 46 (9.2 %) |
+| 3 | left gripper touches while cube still on table | 0 |
+| 4 | **successful transfer** | 417 (83.4 %) |
+
+More than half of the failures happen after a successful grasp, during the transport to the other arm.
 
 ## Quickstart (Google Colab)
 
