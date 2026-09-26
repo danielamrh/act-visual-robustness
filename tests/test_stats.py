@@ -32,6 +32,26 @@ def test_summarize_nested_layout():
     assert s["stage_counts"] == {0: 0, 1: 0, 2: 1, 3: 0, 4: 1}
 
 
+def test_summarize_lerobot_06_layout():
+    # eval_info.json as written by lerobot-eval 0.6.1 (eval_policy_all)
+    info = {
+        "per_task": [
+            {"task_group": "aloha", "task_id": 0, "metrics": {
+                "sum_rewards": [120.0, 30.0, 0.0],
+                "max_rewards": [4.0, 2.0, 0.0],
+                "successes": [True, False, False],
+                "video_paths": ["a.mp4"],
+                "predicted_video_paths": [],
+            }},
+        ],
+        "per_group": {"aloha": {"pc_success": 33.3, "n_episodes": 3}},
+        "overall": {"pc_success": 33.3, "n_episodes": 3, "video_paths": ["a.mp4"]},
+    }
+    s = summarize_eval(info)
+    assert s["n_episodes"] == 3 and s["successes"] == 1
+    assert s["stage_counts"] == {0: 1, 1: 0, 2: 1, 3: 0, 4: 1}
+
+
 def test_summarize_flat_layout():
     info = {"per_episode": [{"success": False, "max_reward": 0.0}] * 3}
     s = summarize_eval(info)

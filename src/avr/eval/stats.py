@@ -29,9 +29,25 @@ def wilson_ci(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 
 def _find_per_episode(obj: Any) -> list[dict]:
-    """Collect all `per_episode` lists, wherever the eval_info layout nests them."""
+    """Collect per-episode results, wherever the eval_info layout nests them.
+
+    Older lerobot writes `per_episode: [{success, max_reward, ...}]`; lerobot
+    0.6 writes `per_task: [{metrics: {successes: [...], max_rewards: [...],
+    sum_rewards: [...]}}]` (parallel lists). The aggregated `per_group` /
+    `overall` entries hold no per-episode data and are ignored.
+    """
     found: list[dict] = []
     if isinstance(obj, dict):
+        if isinstance(obj.get("successes"), list):
+            n = len(obj["successes"])
+            max_rewards = obj.get("max_rewards") or [None] * n
+            sum_rewards = obj.get("sum_rewards") or [None] * n
+            for success, max_r, sum_r in zip(obj["successes"], max_rewards, sum_rewards):
+                ep = {"success": success, "sum_reward": sum_r}
+                if max_r is not None:
+                    ep["max_reward"] = max_r
+                found.append(ep)
+            return found
         for key, value in obj.items():
             if key == "per_episode" and isinstance(value, list):
                 found.extend(value)
