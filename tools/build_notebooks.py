@@ -58,6 +58,10 @@ if sys.version_info >= (3, 13):
 # installs lerobot[aloha] pinned in pyproject.toml (takes a few minutes)
 !pip install -q -e ".[sim]"
 sys.path.insert(0, f"{REPO_DIR}/src")  # editable install is only picked up after a restart
+# re-running this cell in a live session must pick up the freshly pulled code:
+# drop already imported avr modules so the next import loads the new version
+for name in [m for m in sys.modules if m == "avr" or m.startswith("avr.")]:
+    del sys.modules[name]
 
 # GPU rendering: without NVIDIA's EGL registration MuJoCo silently renders on the CPU
 from avr.colab import ensure_nvidia_egl, gl_renderer
