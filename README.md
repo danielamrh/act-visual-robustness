@@ -12,8 +12,8 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 
 | Step | Goal | Status |
 |---|---|---|
-| 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | 🚧 in progress |
-| 2 · Analysis | Perturbation suite (lighting, textures, distractors, camera pose, image noise); compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, R3M; frozen vs finetuned); feature-shift and attention analysis | ⏳ |
+| 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint ✅ + own training 🚧) | 🚧 in progress |
+| 2 · Analysis | Perturbation suite (lighting, textures, distractors, camera pose, image noise) 🚧; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, R3M; frozen vs finetuned); feature-shift and attention analysis | 🚧 |
 | 3 · Method | Targeted modification derived from the analysis | ⏳ |
 
 ## Results
@@ -40,12 +40,34 @@ Where the 83 failures stop (highest reward stage reached):
 
 More than half of the failures happen after a successful grasp, during the transport to the other arm.
 
+## Perturbation suite
+
+`src/avr/perturb` wraps the gym-aloha scene and changes **only what the camera sees**, per episode:
+
+![Perturbation preview: one row per factor, severity levels 0-4](results/perturbation_preview.png)
+
+| Factor | Levels 1 → 4 |
+|---|---|
+| `light_intensity`, `light_color`, `light_direction` | dimmer/brighter, stronger tint, lights rotated 15° → 60° |
+| `table_color`, `background` | table recolored; floor behind the table: flat colors → checker textures |
+| `distractors` | 1 → 4 extra objects on the table (never near the cube) |
+| `camera_pose` | top camera shifted 2 → 10 cm, tilted 2° → 8°, zoomed ±2° → ±8° |
+| `noise`, `blur`, `jpeg` | image corruptions (σ 4 → 32, radius 0.75 → 3.5 px, quality 40 → 5) |
+| `cube_color` *(task-relevant)* | the cube itself recolored |
+
+Guarantees, checked by `tests/test_perturb.py`: with no perturbation the env is pixel- and state-identical to
+gym-aloha; every factor at level 4 changes the image but leaves robot/cube states and rewards bit-identical;
+the same episode seed always yields the same perturbation (paired comparisons across policies).
+The extras are visual-only (`contype=0`) static geoms hidden in geom group 3, and the scene's bounding
+statistics are pinned to the original so even shadows match.
+
 ## Quickstart (Google Colab)
 
 | Notebook | What it does |
 |---|---|
 | [`01_eval_pretrained`](notebooks/01_eval_pretrained.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/01_eval_pretrained.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate the pretrained LeRobot ACT checkpoint (success rate, 95% CI, failure stages) |
 | [`02_train_act`](notebooks/02_train_act.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/02_train_act.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Train ACT from scratch, resumable across Colab sessions (checkpoints mirrored to Drive) |
+| [`03_robustness`](notebooks/03_robustness.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/03_robustness.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate a checkpoint under 11 visual perturbation factors x 4 severity levels |
 
 Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive under
 `MyDrive/act_robustness/`. Every run records the git commit it was produced with.
@@ -58,14 +80,17 @@ notebooks/    Colab entry points
 results/      final tables, plots and GIFs
 src/avr/      project code: CLI wrappers, checkpoint sync, log parsing, eval statistics
 tests/        unit tests
+tools/        notebook generator, labmaze placeholder for Python 3.13
 ```
 
 ## Local development
 
 ```bash
-pip install -e ".[dev]"      # the sim extra (LeRobot) needs Python >= 3.12
-nbstripout --install         # strip notebook outputs before committing
+pip install -e ".[dev]"            # the sim extra (LeRobot) needs Python >= 3.12
+pip install "gym-aloha==0.1.4" pillow   # enough for the perturbation suite + its tests (Python 3.11 ok)
+nbstripout --install               # strip notebook outputs before committing
 pytest
+python tools/build_notebooks.py    # notebooks are generated from this script
 ```
 
 ## References
