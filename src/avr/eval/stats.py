@@ -43,6 +43,14 @@ def _find_per_episode(obj: Any) -> list[dict]:
     return found
 
 
+def merge_eval_infos(paths: list[str | Path]) -> dict:
+    """Combine the episodes of several `eval_info.json` files (e.g. eval chunks)."""
+    episodes: list[dict] = []
+    for path in paths:
+        episodes.extend(_find_per_episode(json.loads(Path(path).read_text())))
+    return {"per_episode": episodes}
+
+
 def summarize_eval(eval_info: str | Path | dict) -> dict:
     """Summarize an `eval_info.json` written by `lerobot-eval`."""
     if not isinstance(eval_info, dict):

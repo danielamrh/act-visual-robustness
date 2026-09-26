@@ -42,3 +42,15 @@ def test_summarize_flat_layout():
 def test_summarize_rejects_empty():
     with pytest.raises(ValueError):
         summarize_eval({"aggregated": {}})
+
+
+def test_merge_eval_infos(tmp_path):
+    import json
+
+    from avr.eval.stats import merge_eval_infos
+
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps({"per_episode": [{"success": True, "max_reward": 4}] * 3}))
+    b.write_text(json.dumps({"per_task": [{"metrics": {"per_episode": [{"success": False, "max_reward": 1}]}}]}))
+    s = summarize_eval(merge_eval_infos([a, b]))
+    assert s["n_episodes"] == 4 and s["successes"] == 3

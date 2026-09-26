@@ -47,7 +47,7 @@ def run_streaming(
 
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     buf = ""
-    last_progress = 0.0
+    last_progress = float("-inf")  # show the first redraw right away
     try:
         with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
             assert proc.stdout is not None

@@ -22,7 +22,9 @@ def eval_cmd(
     # steps x 640x480x3 is ~9 GB and gets the process OOM-killed on Colab.
     batch_size: int = 5,
     device: str = "cuda",
+    seed: int | None = None,
 ) -> list[str]:
+    """Episode i uses env seed `seed + i` (lerobot default seed: 1000)."""
     return [
         "lerobot-eval",
         f"--policy.path={policy_path}",
@@ -35,6 +37,7 @@ def eval_cmd(
         # so its envs are unregistered there. Colab Free has 2 cores anyway.
         "--eval.use_async_envs=false",
         f"--output_dir={output_dir}",
+        *([f"--seed={seed}"] if seed is not None else []),
     ]
 
 
