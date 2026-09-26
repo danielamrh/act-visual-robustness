@@ -95,6 +95,20 @@ def summarize_eval(eval_info: str | Path | dict) -> dict:
     }
 
 
+def mcnemar(a: list[bool], b: list[bool]) -> dict:
+    """Exact McNemar test for two policies evaluated on the same episodes
+    (same seeds, same order). Only discordant episodes carry information:
+    `only_a` = a succeeded and b failed, `only_b` the reverse."""
+    if len(a) != len(b):
+        raise ValueError("paired comparison needs the same episodes for both policies")
+    only_a = sum(1 for x, y in zip(a, b) if x and not y)
+    only_b = sum(1 for x, y in zip(a, b) if y and not x)
+    n = only_a + only_b
+    k = min(only_a, only_b)
+    p = min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2**n) if n else 1.0
+    return {"n": len(a), "only_a": only_a, "only_b": only_b, "p_value": p}
+
+
 def format_summary(summary: dict) -> str:
     lo, hi = summary["ci95"]
     lines = [

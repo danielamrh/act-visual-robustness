@@ -86,6 +86,8 @@ def train_cmd(
     ]
 
 
-def resume_cmd(config_path: str) -> list[str]:
-    """Continue a run from `<run>/checkpoints/last/pretrained_model/train_config.json`."""
-    return ["lerobot-train", f"--config_path={config_path}", "--resume=true"]
+def resume_cmd(config_path: str, steps: int | None = None) -> list[str]:
+    """Continue a run from `<run>/checkpoints/last/pretrained_model/train_config.json`.
+    `steps` overrides the stored total, e.g. to extend a finished run."""
+    cmd = ["lerobot-train", f"--config_path={config_path}", "--resume=true"]
+    return cmd + ([f"--steps={steps}"] if steps is not None else [])

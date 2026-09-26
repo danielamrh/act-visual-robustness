@@ -221,7 +221,7 @@ If the session dies, just reopen this notebook and run it top to bottom again: i
     *SETUP,
     md("""
 ## 2 · Run configuration
-Defaults follow the LeRobot ACT recipe for ALOHA sim (the pretrained checkpoint was trained for 80k steps).
+Defaults follow the reference checkpoint's `train_config.json` (batch 8, lr 1e-5, seed 1000, no augmentation, 100k steps).
 Change `RUN_NAME` for every new experiment: it is the folder name on Drive.
 """),
     code("""
@@ -236,7 +236,7 @@ from avr.train_log import read_train_log, seconds_per_step
 RUN_NAME   = "act_transfer_cube_human_resnet18_s1000"
 DATASET    = "lerobot/aloha_sim_transfer_cube_human"
 TASK       = "AlohaTransferCube-v0"
-STEPS      = 80_000
+STEPS      = 100_000  # as the reference checkpoint's train_config.json (model card says 80k)
 BATCH_SIZE = 8
 SAVE_FREQ  = 5_000    # adjust after the timing test: aim for a checkpoint every ~20-30 min
 SEED       = 1000
@@ -276,13 +276,14 @@ if data > 0.5 * updt:
     md("""
 ## 4 · Train (resumable)
 Starts a fresh run, or resumes from the newest checkpoint on Drive if one exists.
+Raising `STEPS` and re-running this cell extends a finished run from its last checkpoint.
 Runs as a background job: the cell shows a status line every 2 min, the full log goes to `train.log` on Drive. Evaluation rollouts (10 episodes) run every 20k steps.
 """),
     code("""
 config_path = restore_from_drive(DRIVE_RUN, LOCAL_RUN)
 if config_path is not None:
     print("resuming from", os.path.realpath(config_path.parent.parent))
-    cmd = resume_cmd(str(config_path))
+    cmd = resume_cmd(str(config_path), steps=STEPS)  # STEPS > stored total extends a finished run
 else:
     assert not os.path.exists(LOCAL_RUN), f"{LOCAL_RUN} exists without checkpoints; delete it or change RUN_NAME"
     cmd = train_cmd(LOCAL_RUN, dataset=DATASET, task=TASK, steps=STEPS, batch_size=BATCH_SIZE,
@@ -322,8 +323,31 @@ print(format_summary(summary))
 with open(f"{eval_root}/summary.json", "w") as f:
     json.dump({"commit": COMMIT, "run": RUN_NAME, "step": int(step), **summary}, f, indent=2)
 """),
-    md("## 6 · Training curve"),
+    md("""
+### Paired comparison with the pretrained checkpoint (notebook 01)
+Both were evaluated on the same 500 seeds, so we can compare episode by episode (exact McNemar test).
+"""),
     code("""
+from avr.eval.chunked import chunk_info_paths
+from avr.eval.stats import mcnemar
+
+def successes(root):
+    return [bool(e["success"]) for e in merge_eval_infos(chunk_info_paths(root))["per_episode"]]
+
+ref = successes(f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000")
+ours = successes(eval_root)
+t = mcnemar(ref, ours)
+print(f"pretrained: {sum(ref)}/{len(ref)}   ours (step {step}): {sum(ours)}/{len(ours)}")
+print(f"only pretrained succeeds: {t['only_a']}   only ours succeeds: {t['only_b']}   p = {t['p_value']:.2g}")
+"""),
+    md("## 6 · Training curve and in-training evaluations"),
+    code("""
+import ast, re
+# in-training rollouts (10 episodes each, every 20k steps): the "Suite overall aggregated" log lines
+evals = [ast.literal_eval(m.group(1)) for m in re.finditer(r"Suite overall aggregated: (\{.*\})", open(f"{DRIVE_RUN}/train.log").read())]
+for i, e in enumerate(evals, 1):
+    print(f"eval {i} (step ~{20_000 * i}): {e['pc_success']:.0f}% of {e['n_episodes']} episodes")
+
 recs = read_train_log(f"{DRIVE_RUN}/train.log")
 steps = [r["step"] for r in recs]
 fig, ax = plt.subplots(figsize=(7, 3.5))
@@ -332,6 +356,31 @@ ax.set_yscale("log"); ax.set_xlabel("step (approx., LeRobot rounds to 1K)"); ax.
 ax.set_title(RUN_NAME); ax.grid(alpha=0.3)
 fig.tight_layout()
 fig.savefig(f"{DRIVE_RUN}/loss_curve.png", dpi=150)
+"""),
+    md("""
+## 7 · Diagnostics: our training config vs. the reference checkpoint
+Lists every field of `train_config.json` that differs (paths and logging fields excluded).
+"""),
+    code("""
+import urllib.request
+REF_URL = "https://huggingface.co/lerobot/act_aloha_sim_transfer_cube_human/raw/main/train_config.json"
+reference = json.load(urllib.request.urlopen(REF_URL))
+ours_cfg = json.load(open(sorted(glob.glob(f"{DRIVE_RUN}/checkpoints/*/pretrained_model/train_config.json"))[-1]))
+
+def flatten(d, prefix=""):
+    out = {}
+    for k, v in d.items():
+        key = f"{prefix}{k}"
+        out.update(flatten(v, key + ".") if isinstance(v, dict) else {key: v})
+    return out
+
+IGNORE = ("output_dir", "job_name", "wandb", "pretrained_path", "repo_id", "resume", "checkpoint_path")
+a, b = flatten(reference), flatten(ours_cfg)
+for key in sorted(set(a) | set(b)):
+    if any(part in key for part in IGNORE):
+        continue
+    if a.get(key, "<missing>") != b.get(key, "<missing>"):
+        print(f"{key:55s} reference={a.get(key, '<missing>')!r:30.30s}  ours={b.get(key, '<missing>')!r:.40s}")
 """),
 ]
 

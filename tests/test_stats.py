@@ -74,3 +74,14 @@ def test_merge_eval_infos(tmp_path):
     b.write_text(json.dumps({"per_task": [{"metrics": {"per_episode": [{"success": False, "max_reward": 1}]}}]}))
     s = summarize_eval(merge_eval_infos([a, b]))
     assert s["n_episodes"] == 4 and s["successes"] == 3
+
+
+def test_mcnemar():
+    from avr.eval.stats import mcnemar
+
+    a = [True] * 60 + [False] * 40
+    b = [True] * 50 + [False] * 10 + [True] * 2 + [False] * 38
+    t = mcnemar(a, b)
+    assert (t["only_a"], t["only_b"]) == (10, 2)
+    assert t["p_value"] == pytest.approx(0.0386, abs=1e-3)  # exact binomial, n=12, k=2
+    assert mcnemar([True, False], [True, False])["p_value"] == 1.0
