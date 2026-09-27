@@ -117,7 +117,7 @@ def evaluate_cell(lp, env, factor, level, seeds, videos: int, video_dir: Path | 
             tag = "ok" if record["success"] else "fail"
             _write_video(video_dir / f"{factor}_level{level}_seed{seed}_{tag}.mp4", frames, fps=25)
         n_ok = sum(r["success"] for r in records)
-        print(f"{factor} L{level}  episode {i + 1}/{len(seeds)}  success so far {n_ok}/{i + 1}", flush=True)
+        print(f"{factor or 'clean'} L{level}  episode {i + 1}/{len(seeds)}  success so far {n_ok}/{i + 1}", flush=True)
     return {
         "factor": factor,
         "level": level,
