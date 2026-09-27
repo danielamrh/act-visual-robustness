@@ -33,3 +33,9 @@ def test_commands():
     assert "--save_checkpoint=false" in t and "--env_eval_freq=0" in t
     assert "--eval.use_async_envs=false" in eval_cmd("p", "o")
     assert resume_cmd("c.json") == ["lerobot-train", "--config_path=c.json", "--resume=true"]
+
+
+def test_train_cmd_policy_args():
+    t = train_cmd("/o", policy_type="act_enc", policy_args={"encoder": "dinov2_vits14", "freeze_encoder": True})
+    assert "--policy.type=act_enc" in t
+    assert "--policy.encoder=dinov2_vits14" in t and "--policy.freeze_encoder=true" in t

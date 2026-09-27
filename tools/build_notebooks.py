@@ -55,8 +55,8 @@ print("commit:", COMMIT)
 if sys.version_info >= (3, 13):
     !pip install -q ./tools/labmaze_stub
 
-# installs lerobot[aloha] pinned in pyproject.toml (takes a few minutes)
-!pip install -q -e ".[sim]"
+# installs lerobot[aloha] pinned in pyproject.toml (takes a few minutes) and the act_enc policy plugin
+!pip install -q -e ".[sim]" -e plugins/lerobot_policy_act_enc
 sys.path.insert(0, f"{REPO_DIR}/src")  # editable install is only picked up after a restart
 # re-running this cell in a live session must pick up the freshly pulled code:
 # drop already imported avr modules so the next import loads the new version
@@ -201,13 +201,14 @@ Video(videos[0], embed=True, width=480) if videos else None
 # ---------------------------------------------------------------- notebook 02
 nb02 = [
     md(f"""
-# 02 · Train ACT from scratch (Step 1c)
+# 02 · Train ACT: baseline (Step 1c) and encoder variants (Step 2c)
 
 {badge("02_train_act")}
 
-Train our own ACT policy on `lerobot/aloha_sim_transfer_cube_human` (50 human demos) and compare it with the
-pretrained checkpoint from notebook 01 (83 %). This run is also **the baseline all later encoder experiments
-are compared against**.
+Train ACT on `lerobot/aloha_sim_transfer_cube_human` (50 human demos) with the reference recipe.
+`VARIANT = "baseline"` is plain LeRobot ACT (our baseline, 77.4 % at 100k steps); any other value trains ACT with a
+different visual encoder through the `act_enc` plugin (`plugins/lerobot_policy_act_enc`), everything else unchanged.
+Evaluation (section 5) is identical for all variants and paired with the pretrained checkpoint on the same seeds.
 
 Colab Free sessions die after a few hours, so training is **resumable**:
 we train on the fast local disk and a background thread mirrors the newest checkpoints to Drive.
@@ -237,7 +238,19 @@ from avr.lerobot_cli import train_cmd, resume_cmd
 from avr.checkpoints import CheckpointSyncer, restore_from_drive
 from avr.train_log import read_train_log, seconds_per_step
 
-RUN_NAME   = "act_transfer_cube_human_resnet18_s1000"
+# What to train: "baseline" = plain LeRobot ACT (ImageNet ResNet18, finetuned), or an encoder variant
+# "<encoder>_<frozen|ft>" via the act_enc plugin, e.g. "dinov2_vits14_frozen", "dinov2_vits14_ft",
+# "resnet18_scratch_ft", "clip_vitb16_frozen", "siglip_vitb16_frozen" (encoders: src/avr/encoders.py)
+VARIANT    = "baseline"
+
+if VARIANT == "baseline":
+    RUN_NAME, POLICY_TYPE, POLICY_ARGS = "act_transfer_cube_human_resnet18_s1000", "act", {}
+else:
+    encoder, mode = VARIANT.rsplit("_", 1)
+    assert mode in ("frozen", "ft"), VARIANT
+    RUN_NAME = f"actenc_transfer_cube_human_{VARIANT}_s1000"
+    POLICY_TYPE, POLICY_ARGS = "act_enc", {"encoder": encoder, "freeze_encoder": mode == "frozen"}
+print("run:", RUN_NAME, "| policy:", POLICY_TYPE, POLICY_ARGS)
 DATASET    = "lerobot/aloha_sim_transfer_cube_human"
 TASK       = "AlohaTransferCube-v0"
 STEPS      = 100_000  # as the reference checkpoint's train_config.json (model card says 80k)
@@ -262,8 +275,9 @@ timing_dir = f"/content/outputs/timing_{stamp}"
 timing_log = f"{DRIVE_ROOT}/runs/_timing/timing_{COMMIT}_{stamp}.log"
 
 run_streaming(
-    train_cmd(timing_dir, dataset=DATASET, task=TASK, steps=500, batch_size=BATCH_SIZE,
-              log_freq=50, env_eval_freq=0, save_checkpoint=False, seed=SEED, use_amp=USE_AMP),
+    train_cmd(timing_dir, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
+              steps=500, batch_size=BATCH_SIZE, log_freq=50, env_eval_freq=0, save_checkpoint=False,
+              seed=SEED, use_amp=USE_AMP),
     log_path=timing_log,
 )
 
@@ -290,9 +304,9 @@ if config_path is not None:
     cmd = resume_cmd(str(config_path), steps=STEPS)  # STEPS > stored total extends a finished run
 else:
     assert not os.path.exists(LOCAL_RUN), f"{LOCAL_RUN} exists without checkpoints; delete it or change RUN_NAME"
-    cmd = train_cmd(LOCAL_RUN, dataset=DATASET, task=TASK, steps=STEPS, batch_size=BATCH_SIZE,
-                    save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP)
-    meta = dict(run=RUN_NAME, commit=COMMIT, started=time.strftime("%Y-%m-%d %H:%M:%S"),
+    cmd = train_cmd(LOCAL_RUN, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
+                    steps=STEPS, batch_size=BATCH_SIZE, save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP)
+    meta = dict(run=RUN_NAME, variant=VARIANT, commit=COMMIT, started=time.strftime("%Y-%m-%d %H:%M:%S"),
                 dataset=DATASET, task=TASK, steps=STEPS, batch_size=BATCH_SIZE,
                 save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP, cmd=cmd)
     with open(f"{DRIVE_RUN}/run_meta.json", "w") as f:
@@ -478,6 +492,14 @@ POLICIES = {
                                        f"{ROB_BASE}/ours_resnet18_s1000_100k",
                                        f"{BASE_RUN}/eval/step100000_n500_seed1000"),
 }
+# encoder variants trained with notebook 02 (VARIANT != "baseline") are picked up automatically
+import glob
+for run in sorted(glob.glob(f"{RUNS}/actenc_transfer_cube_human_*_s1000")):
+    variant = os.path.basename(run).removeprefix("actenc_transfer_cube_human_").removesuffix("_s1000")
+    POLICIES[f"ours, {variant} (100k)"] = (f"{run}/checkpoints/100000/pretrained_model",
+                                           f"{ROB_BASE}/ours_{variant}_s1000_100k",
+                                           f"{run}/eval/step100000_n500_seed1000")
+print(*POLICIES, sep="\\n")
 SUITE_POLICY = "ours, ResNet18 ImageNet (100k)"
 
 policy_path, SUITE_ROOT, _ = POLICIES[SUITE_POLICY]

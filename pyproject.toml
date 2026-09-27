@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 # Simulation + training stack. LeRobot 0.6.x needs Python >= 3.12 (Colab default).
 sim = [
-    "lerobot[aloha]==0.6.1",
+    "lerobot[aloha,training]==0.6.1",
 ]
 dev = [
     "pytest",

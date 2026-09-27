@@ -37,6 +37,10 @@ class LoadedPolicy:
 
 def load_policy(policy_path: str, task: str = "AlohaTransferCube-v0", device: str = "cuda") -> LoadedPolicy:
     """Load policy + processors exactly like lerobot-eval (lerobot 0.6.1)."""
+    try:  # registers the "act_enc" policy type (encoder variants), if installed
+        import lerobot_policy_act_enc  # noqa: F401
+    except ImportError:
+        pass
     from lerobot.configs import PreTrainedConfig
     from lerobot.envs import make_env_pre_post_processors
     from lerobot.envs.configs import AlohaEnv as AlohaEnvConfig

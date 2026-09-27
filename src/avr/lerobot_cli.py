@@ -43,6 +43,8 @@ def eval_cmd(
 
 def train_cmd(
     output_dir: str,
+    policy_type: str = "act",
+    policy_args: dict | None = None,
     dataset: str = "lerobot/aloha_sim_transfer_cube_human",
     task: str = "AlohaTransferCube-v0",
     steps: int = 80_000,
@@ -59,10 +61,14 @@ def train_cmd(
     wandb: bool = False,
     extra: list[str] | None = None,
 ) -> list[str]:
-    """Fresh ACT training run. `env_eval_freq=0` disables in-training rollouts."""
+    """Fresh training run. `env_eval_freq=0` disables in-training rollouts.
+    `policy_args` adds `--policy.<key>=<value>`, e.g. {"encoder": "dinov2_vits14",
+    "freeze_encoder": True} for the act_enc plugin."""
+    policy_flags = [f"--policy.{k}={_flag(v) if isinstance(v, bool) else v}" for k, v in (policy_args or {}).items()]
     return [
         "lerobot-train",
-        "--policy.type=act",
+        f"--policy.type={policy_type}",
+        *policy_flags,
         "--policy.device=cuda",
         "--policy.push_to_hub=false",
         f"--policy.use_amp={_flag(use_amp)}",

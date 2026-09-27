@@ -79,6 +79,25 @@ the same episode seed always yields the same perturbation (paired comparisons ac
 The extras are visual-only (`contype=0`) static geoms hidden in geom group 3, and the scene's bounding
 statistics are pinned to the original so even shadows match.
 
+## Encoder variants (step 2c)
+
+`plugins/lerobot_policy_act_enc` is a LeRobot policy plugin (policy type `act_enc`): ACT with the image backbone
+swapped for any encoder in [`src/avr/encoders.py`](src/avr/encoders.py), frozen or finetuned. Everything else
+(transformer, CVAE, action chunking, optimizer preset, pre/post-processing) is inherited from LeRobot's ACT, so
+`lerobot-train` / `lerobot-eval` run it unchanged and every variant uses the baseline's recipe.
+
+| Encoder | Pretraining | Tokens per image |
+|---|---|---|
+| `resnet18_imagenet` | ImageNet-1k supervised (= baseline) | 15 × 20 |
+| `resnet18_scratch` | none (GroupNorm instead of frozen BatchNorm) | 15 × 20 |
+| `dinov2_vits14` | DINOv2 self-supervised | 16 × 21 at 224 × 294 |
+| `clip_vitb16` | CLIP image-text | 14 × 18 at 224 × 288 |
+| `siglip_vitb16` | SigLIP image-text | 14 × 18 at 224 × 288 |
+
+Each encoder returns a `(B, C, h, w)` feature map like LeRobot's ResNet, which ACT turns into transformer tokens;
+ViTs get the image at their pretraining resolution (aspect ratio kept), which keeps the token count close to the
+ResNet's 300. Train a variant with notebook 02 (`VARIANT = "dinov2_vits14_frozen"`, ...).
+
 ## Quickstart (Google Colab)
 
 | Notebook | What it does |
@@ -99,6 +118,7 @@ results/      final tables, plots and GIFs
 src/avr/      project code: CLI wrappers, checkpoint sync, log parsing, eval statistics
 tests/        unit tests
 tools/        notebook generator, labmaze placeholder for Python 3.13
+plugins/      lerobot_policy_act_enc: ACT with swappable visual encoders
 ```
 
 ## Local development
@@ -106,6 +126,7 @@ tools/        notebook generator, labmaze placeholder for Python 3.13
 ```bash
 pip install -e ".[dev]"            # the sim extra (LeRobot) needs Python >= 3.12
 pip install "gym-aloha==0.1.4" pillow   # enough for the perturbation suite + its tests (Python 3.11 ok)
+pip install -e ".[sim]" -e plugins/lerobot_policy_act_enc timm   # plugin tests (Python 3.12, CPU torch is enough)
 nbstripout --install               # strip notebook outputs before committing
 pytest
 python tools/build_notebooks.py    # notebooks are generated from this script
