@@ -90,3 +90,20 @@ def test_distractors_keep_clear_of_the_cube(env):
         cube = sample_box_pose(seed)[:2]
         for obj in info["perturbation"]["params"]["objects"]:
             assert np.linalg.norm(np.array(obj["xy"]) - cube) > 0.15
+
+
+def test_rendering_off_keeps_physics_and_render_observation_matches(env, actions):
+    env.set_perturbation("light_color", 3)
+    _, clean_states, _ = _rollout(env, 7, actions)
+    env.set_rendering(False)
+    try:
+        frames, states, _ = _rollout(env, 7, actions)
+        assert not frames[1:].any(), "no rendering while off"
+        assert np.array_equal(states, clean_states)
+        on_demand = env.render_observation()
+    finally:
+        env.set_rendering(True)
+    env.reset(seed=7)
+    for a in actions:
+        obs, *_ = env.step(a)
+    assert np.array_equal(on_demand, obs["pixels"]["top"])

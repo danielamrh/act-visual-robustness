@@ -28,12 +28,16 @@ from avr.perturb import scene
 from avr.perturb.suite import FACTORS, ModelState, apply_scene_factor, make_image_fn
 
 
+_BLANK = np.zeros((480, 640, 3), dtype=np.uint8)
+
+
 def _top_only_observation(task, physics):
     obs = collections.OrderedDict()
     obs["qpos"] = task.get_qpos(physics)
     obs["qvel"] = task.get_qvel(physics)
     obs["env_state"] = task.get_env_state(physics)
-    obs["images"] = {"top": physics.render(height=480, width=640, camera_id="top")}
+    rendered = getattr(task, "render_images", True)
+    obs["images"] = {"top": physics.render(height=480, width=640, camera_id="top") if rendered else _BLANK}
     return obs
 
 
@@ -67,6 +71,16 @@ class PerturbedAlohaEnv(AlohaEnv):
         return control.Environment(
             physics, TASKS[task_name](), float("inf"), control_timestep=DT, n_sub_steps=None, flat_observation=False
         )
+
+    def set_rendering(self, enabled: bool):
+        """With rendering off, `step` only advances physics and returns a blank image. Used to
+        replay recorded actions quickly when frames are only needed at a few probe steps."""
+        self._env.task.render_images = enabled
+
+    def render_observation(self):
+        """Render the current state as the policy would see it (incl. image corruption)."""
+        # physics.render returns a flipped view (negative strides), copy like gym-aloha does
+        return self._corrupt(self._env.physics.render(height=480, width=640, camera_id="top").copy())
 
     def set_perturbation(self, factor: str | None, level: int = 0):
         """Takes effect at the next reset."""
@@ -102,7 +116,7 @@ class PerturbedAlohaEnv(AlohaEnv):
 
     def _format_raw_obs(self, raw_obs):
         obs = super()._format_raw_obs(raw_obs)
-        if self._image_fn is not None:
+        if self._image_fn is not None and getattr(self._env.task, "render_images", True):
             if "pixels" in obs:
                 obs["pixels"]["top"] = self._corrupt(obs["pixels"]["top"])
             else:

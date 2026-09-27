@@ -475,34 +475,21 @@ Seeds 1000-1049 for every cell. Finished cells are stored on Drive as `<factor>/
 on re-run, so the suite can be spread over several sessions. Two videos per cell are saved to `videos/`.
 The status line shows the running success rate of the current cell.
 
-`POLICIES` lists every checkpoint we compare; pick the one to run with `SUITE_POLICY`. New policies
-(e.g. other encoders) are added as new rows. Our own 100k run is the baseline for the encoder comparison,
+`POLICIES` (from `src/avr/registry.py`) lists every checkpoint we compare; pick the one to run with
+`SUITE_POLICY`. Encoder variants trained in notebook 02 appear automatically. Our own 100k run is the baseline for the encoder comparison,
 since all variants are trained with exactly its recipe.
 """),
     code("""
 from avr.perturb import FACTORS
 
-RUNS = f"{DRIVE_ROOT}/runs"
-BASE_RUN = f"{RUNS}/act_transfer_cube_human_resnet18_s1000"
-POLICIES = {
-    # label: (checkpoint, robustness results dir, 500-episode lerobot-eval dir giving the clean success rate)
-    "pretrained ACT (LeRobot Hub)": (POLICY_DIR, f"{ROB_BASE}/pretrained_resnet18",
-                                     f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"),
-    "ours, ResNet18 ImageNet (100k)": (f"{BASE_RUN}/checkpoints/100000/pretrained_model",
-                                       f"{ROB_BASE}/ours_resnet18_s1000_100k",
-                                       f"{BASE_RUN}/eval/step100000_n500_seed1000"),
-}
-# encoder variants trained with notebook 02 (VARIANT != "baseline") are picked up automatically
-import glob
-for run in sorted(glob.glob(f"{RUNS}/actenc_transfer_cube_human_*_s1000")):
-    variant = os.path.basename(run).removeprefix("actenc_transfer_cube_human_").removesuffix("_s1000")
-    POLICIES[f"ours, {variant} (100k)"] = (f"{run}/checkpoints/100000/pretrained_model",
-                                           f"{ROB_BASE}/ours_{variant}_s1000_100k",
-                                           f"{run}/eval/step100000_n500_seed1000")
+from avr.registry import policy_registry
+
+# every policy we compare (encoder variants trained in notebook 02 are discovered automatically)
+POLICIES = policy_registry(DRIVE_ROOT)
 print(*POLICIES, sep="\\n")
 SUITE_POLICY = "ours, ResNet18 ImageNet (100k)"
 
-policy_path, SUITE_ROOT, _ = POLICIES[SUITE_POLICY]
+policy_path, SUITE_ROOT = POLICIES[SUITE_POLICY].checkpoint, POLICIES[SUITE_POLICY].robustness
 assert os.path.exists(f"{policy_path}/config.json"), policy_path
 # clean run on seeds 1000-1099: the paired reference for every perturbed cell (seeds 1000-1049)
 run_suite(policy_path, SUITE_ROOT, ["clean"], episodes=100, tag="clean")
@@ -530,7 +517,7 @@ from avr.analysis.robustness import load_cells, plot_robustness, summary_rows
 
 # every policy with suite results; level 0 = its clean success rate from the 500-episode lerobot-eval
 results, clean_rates = {}, {}
-for label, (_, root, clean_eval) in POLICIES.items():
+for label, (_, root, clean_eval, _) in POLICIES.items():
     cells = {k: v for k, v in load_cells(root).items() if k[0] != "clean"}
     if not cells:
         continue
@@ -592,7 +579,112 @@ for path in videos("light_direction_level1_*_fail.mp4")[:1] + videos("cube_color
 """),
 ]
 
-for name, cells in (("01_eval_pretrained", nb01), ("02_train_act", nb02), ("03_robustness", nb03)):
+
+# ---------------------------------------------------------------- notebook 04
+nb04 = [
+    md(f"""
+# 04 · Why does a perturbation hurt? Probing the policy (Step 2d)
+
+{badge("04_probe")}
+
+Every perturbation is purely visual, so a clean episode's actions can be **replayed** under any perturbation and the
+robot passes through exactly the same states - only the camera image differs. At 8 probe steps per episode we feed
+the clean and the perturbed image (same state) through the policy and measure:
+
+| Metric | Meaning |
+|---|---|
+| `feature_shift` | cosine distance between the encoder's feature maps - how much the *representation* moves |
+| `action_shift` | mean abs. difference of the predicted 100-step action chunks (rad) - how much the *decision* moves |
+| `attn_shift` | total variation between the decoder's cross-attention maps |
+
+Plus, for the first seed, **occlusion sensitivity** maps (how much the action chunk changes when a gray patch hides each
+image location), with the shadows outlined. No closed-loop rollouts under perturbation are needed: ~10 min per policy.
+"""),
+    *SETUP,
+    md("## 2 · Run the probe for every trained policy (resumable per seed)"),
+    code("""
+from avr.background import start_background, watch
+from avr.registry import policy_registry, trained
+
+POLICIES = trained(policy_registry(DRIVE_ROOT))
+print(*POLICIES, sep="\\n")
+N_SEEDS = 10
+
+for label, paths in POLICIES.items():
+    print(f"\\n=== {label}")
+    cmd = [sys.executable, "-m", "avr.analysis.features", "--policy", paths.checkpoint,
+           "--out", paths.probe, "--seeds", str(N_SEEDS), "--seed", "1000"]
+    log = f"/content/logs/probe_{os.path.basename(paths.probe)}.log"
+    watch(start_background(cmd, log), log, interval=60)
+"""),
+    md("""
+## 3 · Probe metrics per perturbation
+Mean over 10 seeds (each seed averaged over its probe steps first), per policy.
+"""),
+    code("""
+import pandas as pd
+from IPython.display import display
+from avr.analysis.attention import load_probe_rows, shift_table
+
+probe_rows = {label: load_probe_rows(f"{p.probe}/feature_probe.jsonl") for label, p in POLICIES.items()
+              if os.path.exists(f"{p.probe}/feature_probe.jsonl")}
+for label, rows in probe_rows.items():
+    print(label)
+    df = pd.DataFrame(shift_table(rows))[["factor", "level", "feature_shift", "action_shift", "attn_shift"]]
+    display(df.style.format({"feature_shift": "{:.3f}", "action_shift": "{:.4f}", "attn_shift": "{:.3f}"}).hide(axis="index"))
+"""),
+    md("""
+## 4 · Does the probe predict the damage?
+One point per factor x level: probe shift (x) against the paired success change from the perturbation suite
+(notebook 03, y). A high rank correlation means the cheap probe explains where the policy fails.
+Only policies with suite results are shown.
+"""),
+    code("""
+from avr.analysis.attention import plot_shift_vs_drop
+from avr.analysis.robustness import load_cells, summary_rows
+
+pairs = {}
+for label, rows in probe_rows.items():
+    cells = load_cells(POLICIES[label].robustness)
+    if ("clean", 0) not in cells:
+        continue
+    suite = summary_rows({k: v for k, v in cells.items() if k[0] != "clean"}, clean=cells[("clean", 0)])
+    pairs[label] = (rows, suite)
+
+PROBE_FIG = f"{DRIVE_ROOT}/probe"
+for metric in ("action_shift", "feature_shift"):
+    fig, rhos = plot_shift_vs_drop(pairs, metric=metric, path=f"{PROBE_FIG}/{metric}_vs_drop.png")
+    print(metric, {k: round(v, 2) for k, v in rhos.items()})
+"""),
+    md("""
+## 5 · Where does the policy look?
+Occlusion sensitivity (bottom) for the clean image and five perturbations, first seed, probe steps 50 and 100.
+Orange outlines: pixels that change when shadows are switched off, i.e. the shadows.
+"""),
+    code("""
+import glob
+from avr.analysis.attention import attention_figure, load_figure_maps
+
+for label, paths in POLICIES.items():
+    figs = sorted(glob.glob(f"{paths.probe}/figures_seed*.npz"))
+    if not figs:
+        continue
+    maps = load_figure_maps(figs[0])
+    for step in sorted(maps["None_L0"]):
+        attention_figure(maps, step, kind="occl", title=f"{label}: occlusion sensitivity, step {step}",
+                         path=f"{paths.probe}/occlusion_step{step}.png")
+"""),
+    md("### 5b · For comparison: the decoder cross-attention (diffuse, piles up on empty background)"),
+    code("""
+for label, paths in POLICIES.items():
+    figs = sorted(glob.glob(f"{paths.probe}/figures_seed*.npz"))
+    if figs:
+        maps = load_figure_maps(figs[0])
+        attention_figure(maps, sorted(maps["None_L0"])[0], kind="attn", title=f"{label}: cross-attention")
+"""),
+]
+
+for name, cells in (("01_eval_pretrained", nb01), ("02_train_act", nb02), ("03_robustness", nb03), ("04_probe", nb04)):
     with open(NB_DIR / f"{name}.ipynb", "w", encoding="utf-8") as f:
         json.dump(notebook(cells), f, indent=1, ensure_ascii=False)
         f.write("\n")

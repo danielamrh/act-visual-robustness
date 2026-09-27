@@ -13,7 +13,7 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 | Step | Goal | Status |
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
-| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and attention analysis | 🚧 |
+| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and occlusion analysis (tooling ✅) | 🚧 |
 | 3 · Method | Targeted modification derived from the analysis | ⏳ |
 
 ## Results
@@ -140,6 +140,7 @@ ResNet's 300. Train a variant with notebook 02 (`VARIANT = "dinov2_vits14_frozen
 | [`01_eval_pretrained`](notebooks/01_eval_pretrained.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/01_eval_pretrained.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate the pretrained LeRobot ACT checkpoint (success rate, 95% CI, failure stages) |
 | [`02_train_act`](notebooks/02_train_act.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/02_train_act.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Train ACT from scratch, resumable across Colab sessions (checkpoints mirrored to Drive) |
 | [`03_robustness`](notebooks/03_robustness.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/03_robustness.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate a checkpoint under 11 visual perturbation factors x 4 severity levels |
+| [`04_probe`](notebooks/04_probe.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/04_probe.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Why a perturbation hurts: feature / action shift under replayed episodes, occlusion sensitivity maps |
 
 Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive under
 `MyDrive/act_robustness/`. Every run records the git commit it was produced with.
