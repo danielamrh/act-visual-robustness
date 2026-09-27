@@ -13,7 +13,7 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 | Step | Goal | Status |
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
-| 2 · Analysis | Perturbation suite (lighting, textures, distractors, camera pose, image noise) 🚧; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, R3M; frozen vs finetuned); feature-shift and attention analysis | 🚧 |
+| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and attention analysis | 🚧 |
 | 3 · Method | Targeted modification derived from the analysis | ⏳ |
 
 ## Results
@@ -57,6 +57,41 @@ the reference alone succeeds in 68 episodes, ours alone in 38 (p = 0.005). With 
 cannot tell training-seed variance from LeRobot / dataset-format version effects (the only other config
 difference is the video decoder, `pyav` vs `torchcodec`). **Our 100k run is the baseline for all encoder
 comparisons**, which use exactly this recipe and the same evaluation seeds.
+
+### Step 2b · Where the baseline breaks: the policy reads shadows
+
+Our 100k baseline under the perturbation suite, 50 episodes per cell (seeds 1000–1049). Every cell is compared
+**paired** with the clean run on the same seeds (on these seeds the clean success rate is 70 %, not 77 %), exact
+McNemar test, Holm-corrected over all 49 cells.
+
+| Perturbation | Level | Success | Δ vs. clean (same seeds) | p (Holm) |
+|---|---|---|---|---|
+| `light_direction` (15° / 30° / 45° / 60°) | 1 / 2 / 3 / 4 | 46 / 28 / 24 / 38 % | −24 / **−42** / **−46** / −32 | 1 / **0.009** / **0.009** / 0.2 |
+| `noise` σ = 16 / 32 | 3 / 4 | 36 / 0 % | −34 / **−70** | 0.06 / **3e-9** |
+| `blur` radius 2.5 / 3.5 px | 3 / 4 | 38 / 6 % | **−32** / **−64** | **0.02** / **2e-7** |
+| `jpeg` quality 5 | 4 | 30 % | **−40** | **0.015** |
+| `camera_pose` 7–10 cm, 6–8° | 3 / 4 | 50 / 54 % | −20 / −16 | 1 / 1 |
+| light intensity / color, table color, background, distractors, **cube color** | 1–4 | 64–82 % | −6 … +12 | 1 |
+
+* **Color does not matter, not even the cube's.** A green or white cube is transferred as often as the red one: the policy
+  does not find the cube by its color.
+* **Light *direction* does, color and brightness don't.** What changes with the direction are the shadows. A pre-registered
+  follow-up with two diagnostic factors isolates them (same seeds, same per-episode light rotation):
+
+  | Condition | Success |
+  |---|---|
+  | clean | 70 % |
+  | shadows switched off, lights unchanged | **36 %** (paired p = 0.003) |
+  | light rotated 15° → 60°, shadows on | 46 / 28 / 24 / 38 % |
+  | same rotation, shadows off | 36 / 36 / 30 / 40 % |
+
+  Removing the shadows alone halves the success rate; once they are gone, rotating the light barely matters any more;
+  and moved shadows are as bad as missing ones (p = 0.36–1 per level). The `light_direction` failure is explained by the
+  shadows. Our reading: from a camera looking straight down, height is hard to see, and the policy has learned to use the
+  shadows of grippers and cube as a height cue.
+* **High-frequency corruptions** (strong noise, blur, JPEG) break the ImageNet ResNet18 encoder, a known weakness of
+  supervised CNN features (ImageNet-C). Blur mostly breaks the handover (60 % transport failures at level 4), noise
+  already the approach (42 % never touch the cube).
 
 ## Perturbation suite
 
