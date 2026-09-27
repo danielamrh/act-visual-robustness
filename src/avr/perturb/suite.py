@@ -6,7 +6,8 @@ None of them changes physics: the robot and cube behave identically, only
 what the policy *sees* differs.
 
 `category` separates nuisances a good policy should ignore from changes to
-the task-relevant object itself (the cube's color).
+the task-relevant object itself (the cube's color); `diagnostic` factors
+isolate one mechanism to test a hypothesis (here: does the policy use shadows?).
 
 The level magnitudes are a first calibration; check them visually with
 `avr.perturb.preview` before running experiments.
@@ -15,6 +16,7 @@ The level magnitudes are a first calibration; check them visually with
 from __future__ import annotations
 
 import io
+import zlib
 from dataclasses import dataclass
 from typing import Callable
 
@@ -47,6 +49,9 @@ FACTORS = {
         Factor("blur", "image", "nuisance", "Gaussian blur"),
         Factor("jpeg", "image", "nuisance", "JPEG compression artifacts"),
         Factor("cube_color", "scene", "task", "the cube itself recolored"),
+        # diagnostics for the shadow hypothesis (light_direction hurts much more than light color/intensity)
+        Factor("shadows_off", "scene", "diagnostic", "no light casts shadows (any level > 0; run level 1 only)"),
+        Factor("light_direction_noshadow", "scene", "diagnostic", "light_direction with shadows switched off"),
     ]
 }
 
@@ -62,7 +67,7 @@ class ModelState:
     """Snapshot of every model field a scene factor may touch."""
 
     FIELDS = (
-        "light_diffuse", "light_specular", "light_ambient", "light_dir",
+        "light_diffuse", "light_specular", "light_ambient", "light_dir", "light_castshadow",
         "geom_rgba", "geom_group", "geom_size", "geom_matid",
         "body_pos", "cam_pos", "cam_quat", "cam_fovy", "cam_mode", "cam_bodyid",
     )  # fmt: skip
@@ -123,6 +128,19 @@ def light_direction(physics, rng, level, **_):
     m = physics.model
     m.light_dir[...] = m.light_dir @ rot.T
     return {"degrees": deg}
+
+
+def shadows_off(physics, rng, level, **_):
+    physics.model.light_castshadow[...] = 0
+    return {"castshadow": 0}
+
+
+def light_direction_noshadow(physics, rng, level, **_):
+    """Same draw as `light_direction` for the same episode and level (the RNG is
+    seeded per factor name, so we rebuild the light_direction stream)."""
+    params = light_direction(physics, _twin_rng(rng, "light_direction"), level)
+    physics.model.light_castshadow[...] = 0
+    return {**params, "castshadow": 0}
 
 
 def table_color(physics, rng, level, **_):
@@ -218,7 +236,15 @@ def cube_color(physics, rng, level, **_):
     return {"rgb": rgba[:3].round(3).tolist()}
 
 
+def _twin_rng(rng: np.random.Generator, factor: str) -> np.random.Generator:
+    """The generator another factor would get for the same (seed, level)."""
+    seed, _, level = rng.bit_generator.seed_seq.entropy
+    return np.random.default_rng([seed, zlib.crc32(factor.encode()), level])
+
+
 SCENE_FNS: dict[str, Callable] = {
+    "shadows_off": shadows_off,
+    "light_direction_noshadow": light_direction_noshadow,
     "light_intensity": light_intensity,
     "light_color": light_color,
     "light_direction": light_direction,

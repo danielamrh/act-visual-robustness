@@ -109,6 +109,18 @@ def mcnemar(a: list[bool], b: list[bool]) -> dict:
     return {"n": len(a), "only_a": only_a, "only_b": only_b, "p_value": p}
 
 
+def holm(p_values: list[float]) -> list[float]:
+    """Holm-Bonferroni adjusted p-values (same order as the input)."""
+    m = len(p_values)
+    order = sorted(range(m), key=lambda i: p_values[i])
+    adjusted = [0.0] * m
+    running = 0.0
+    for rank, i in enumerate(order):
+        running = max(running, min(1.0, (m - rank) * p_values[i]))
+        adjusted[i] = running
+    return adjusted
+
+
 def format_summary(summary: dict) -> str:
     lo, hi = summary["ci95"]
     lines = [

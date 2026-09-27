@@ -85,3 +85,10 @@ def test_mcnemar():
     assert (t["only_a"], t["only_b"]) == (10, 2)
     assert t["p_value"] == pytest.approx(0.0386, abs=1e-3)  # exact binomial, n=12, k=2
     assert mcnemar([True, False], [True, False])["p_value"] == 1.0
+
+
+def test_holm():
+    from avr.eval.stats import holm
+
+    assert holm([0.01, 0.04, 0.03]) == pytest.approx([0.03, 0.06, 0.06])
+    assert holm([0.5, 0.9]) == pytest.approx([1.0, 1.0])

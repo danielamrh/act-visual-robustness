@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from avr.eval.stats import wilson_ci
+from avr.eval.stats import holm, mcnemar, wilson_ci
 from avr.perturb.suite import FACTORS
 
 # Categorical order from the validated reference palette (light surface);
@@ -30,27 +30,48 @@ def load_cells(root: str | Path) -> dict[tuple[str, int], dict]:
 
 
 def summary_rows(cells: dict, clean: dict | None = None) -> list[dict]:
-    """One row per cell: success rate, 95% CI and where failures stop."""
+    """One row per cell: success rate, 95% CI and where failures stop.
+
+    With `clean` (the unperturbed cell of the same policy, covering the same
+    seeds), each row also gets a paired comparison on exactly those episodes:
+    the clean success rate on the same seeds, the difference, and an exact
+    McNemar p-value, Holm-corrected over all rows.
+    """
     rows = []
     items = sorted(cells.items(), key=lambda kv: (_factor_rank(kv[0][0]), kv[0][1]))
+    clean_by_seed = {e["seed"]: e["success"] for e in clean["episodes"]} if clean else {}
     for (factor, level), cell in items:
         eps = cell["episodes"]
         n, k = len(eps), sum(e["success"] for e in eps)
         lo, hi = wilson_ci(k, n)
         stages = Counter(int(round(e["max_reward"])) for e in eps if not e["success"])
-        rows.append({
+        row = {
             "factor": factor, "level": level,
             "category": FACTORS[factor].category if factor in FACTORS else "clean",
             "n": n, "success": k / n, "ci_lo": lo, "ci_hi": hi,
             "fail_no_touch": stages.get(0, 0) / n,
             "fail_grasp": stages.get(1, 0) / n,
             "fail_transport": (stages.get(2, 0) + stages.get(3, 0)) / n,
-        })  # fmt: skip
+        }  # fmt: skip
+        if clean_by_seed and factor != "clean":
+            paired = [(clean_by_seed[e["seed"]], e["success"]) for e in eps if e["seed"] in clean_by_seed]
+            if len(paired) != n:
+                raise ValueError(f"clean run misses seeds of {factor} level {level}")
+            test = mcnemar([a for a, _ in paired], [b for _, b in paired])
+            clean_rate = sum(a for a, _ in paired) / n
+            row.update(clean_same_seeds=clean_rate, delta=k / n - clean_rate,
+                       only_clean=test["only_a"], only_perturbed=test["only_b"], p=test["p_value"])
+        rows.append(row)
+    tested = [r for r in rows if "p" in r]
+    for r, p_adj in zip(tested, holm([r["p"] for r in tested])):
+        r["p_holm"] = p_adj
     return rows
 
 
 def _factor_rank(name: str) -> int:
-    return FACTOR_ORDER.index(name) if name in FACTOR_ORDER else -1
+    if name == "clean":
+        return -1
+    return FACTOR_ORDER.index(name) if name in FACTOR_ORDER else len(FACTOR_ORDER)
 
 
 def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | None = None, path=None):

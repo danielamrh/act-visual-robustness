@@ -482,7 +482,24 @@ SUITE_POLICY = "ours, ResNet18 ImageNet (100k)"
 
 policy_path, SUITE_ROOT, _ = POLICIES[SUITE_POLICY]
 assert os.path.exists(f"{policy_path}/config.json"), policy_path
-run_suite(policy_path, SUITE_ROOT, sorted(FACTORS), episodes=50)
+# clean run on seeds 1000-1099: the paired reference for every perturbed cell (seeds 1000-1049)
+run_suite(policy_path, SUITE_ROOT, ["clean"], episodes=100, tag="clean")
+MAIN_FACTORS = [f for f in sorted(FACTORS) if FACTORS[f].category != "diagnostic"]
+run_suite(policy_path, SUITE_ROOT, MAIN_FACTORS, episodes=50)
+"""),
+    md("""
+### 4b · Shadow diagnostics
+`light_direction` hurts far more than light color or intensity. Hypothesis: from the top camera, height is
+hard to see, and the policy uses the **shadows** of grippers and cube as a height cue. Two diagnostic factors:
+- `shadows_off` - no shadows, lights unchanged (only level 1 is meaningful)
+- `light_direction_noshadow` - exactly the same light rotation per episode as `light_direction`, but without shadows
+
+If shadows are the cue, `shadows_off` should hurt, and removing the shadows should *not* rescue the rotated-light episodes
+the way it would if shading alone were the problem.
+"""),
+    code("""
+run_suite(policy_path, SUITE_ROOT, ["shadows_off"], levels=[1], episodes=50, tag="shadows")
+run_suite(policy_path, SUITE_ROOT, ["light_direction_noshadow"], episodes=50, tag="noshadow")
 """),
     md("## 5 · Results"),
     code("""
@@ -500,20 +517,56 @@ for label, (_, root, clean_eval) in POLICIES.items():
     clean_rates[label] = sum(bool(e["success"]) for e in eps) / len(eps)
 print({k: f"{len(v)} cells, clean {clean_rates[k]:.1%}" for k, v in results.items()})
 
-df = pd.DataFrame(summary_rows(results[SUITE_POLICY]))
+# paired against the clean run of the same policy on the same seeds; p_holm corrects for all cells
+clean_cell = load_cells(SUITE_ROOT)[("clean", 0)]
+df = pd.DataFrame(summary_rows(results[SUITE_POLICY], clean=clean_cell))
 df.to_csv(f"{SUITE_ROOT}/summary.csv", index=False)
-pct = {c: "{:.0%}" for c in ["success", "ci_lo", "ci_hi", "fail_no_touch", "fail_grasp", "fail_transport"]}
-display(df.style.format(pct).hide(axis="index"))
+cols = ["factor", "level", "category", "n", "success", "ci_lo", "ci_hi", "clean_same_seeds", "delta",
+        "only_clean", "only_perturbed", "p_holm", "fail_no_touch", "fail_grasp", "fail_transport"]
+fmt = {c: "{:.0%}" for c in ["success", "ci_lo", "ci_hi", "clean_same_seeds", "fail_no_touch", "fail_grasp", "fail_transport"]}
+fmt.update(delta="{:+.0%}", p_holm="{:.2g}")
+display(df[cols].style.format(fmt).hide(axis="index"))
 
 fig = plot_robustness(results, clean_rates, path=f"{ROB_BASE}/robustness_curves.png")
+"""),
+    md("""
+### 5b · Shadow hypothesis
+Per level: success with the rotated light, with the same rotation but no shadows, and the paired test between the two
+(same seeds, same light rotation). Plus `shadows_off` against the clean run.
+"""),
+    code("""
+from avr.eval.stats import mcnemar
+
+cells_all = load_cells(SUITE_ROOT)
+def succ(cell):
+    return {e["seed"]: e["success"] for e in cell["episodes"]}
+
+rows = []
+for level in range(1, 5):
+    a, b = succ(cells_all[("light_direction", level)]), succ(cells_all[("light_direction_noshadow", level)])
+    seeds = sorted(a)
+    t = mcnemar([a[x] for x in seeds], [b[x] for x in seeds])
+    rows.append({"level": level, "rotated light": sum(a.values()) / len(a),
+                 "rotated light, no shadows": sum(b.values()) / len(b),
+                 "only with shadows": t["only_a"], "only without": t["only_b"], "p": t["p_value"]})
+display(pd.DataFrame(rows).style.format({"rotated light": "{:.0%}", "rotated light, no shadows": "{:.0%}", "p": "{:.2g}"}).hide(axis="index"))
+
+c, so = succ(clean_cell), succ(cells_all[("shadows_off", 1)])
+t = mcnemar([c[x] for x in sorted(so)], [so[x] for x in sorted(so)])
+print(f"shadows_off: {sum(so.values())}/{len(so)} vs clean {sum(c[x] for x in so)}/{len(so)} on the same seeds "
+      f"(only clean {t['only_a']}, only shadows_off {t['only_b']}, p = {t['p_value']:.2g})")
 """),
     md("## 6 · Failure videos"),
     code("""
 import glob
 from IPython.display import Video
-fails = sorted(glob.glob(f"{SUITE_ROOT}/videos/*_fail.mp4"))
-print(len(fails), "failure videos, e.g.:", *[os.path.basename(f) for f in fails[:10]], sep="\\n  ")
-Video(fails[0], embed=True, width=480) if fails else None
+def videos(pattern):
+    return sorted(glob.glob(f"{SUITE_ROOT}/videos/{pattern}"))
+
+# a light_direction failure and a successful recolored cube (cube_color level 4)
+for path in videos("light_direction_level1_*_fail.mp4")[:1] + videos("cube_color_level4_*_ok.mp4")[:1]:
+    print(os.path.basename(path))
+    display(Video(path, embed=True, width=480))
 """),
 ]
 
