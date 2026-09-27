@@ -460,33 +460,58 @@ print(f"same outcome in {agree}/{len(ours)} paired episodes")
 Seeds 1000-1049 for every cell. Finished cells are stored on Drive as `<factor>/level<k>.json` and skipped
 on re-run, so the suite can be spread over several sessions. Two videos per cell are saved to `videos/`.
 The status line shows the running success rate of the current cell.
+
+`POLICIES` lists every checkpoint we compare; pick the one to run with `SUITE_POLICY`. New policies
+(e.g. other encoders) are added as new rows. Our own 100k run is the baseline for the encoder comparison,
+since all variants are trained with exactly its recipe.
 """),
     code("""
 from avr.perturb import FACTORS
-run_suite(POLICY_DIR, ROB_ROOT, sorted(FACTORS), episodes=50)
+
+RUNS = f"{DRIVE_ROOT}/runs"
+BASE_RUN = f"{RUNS}/act_transfer_cube_human_resnet18_s1000"
+POLICIES = {
+    # label: (checkpoint, robustness results dir, 500-episode lerobot-eval dir giving the clean success rate)
+    "pretrained ACT (LeRobot Hub)": (POLICY_DIR, f"{ROB_BASE}/pretrained_resnet18",
+                                     f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"),
+    "ours, ResNet18 ImageNet (100k)": (f"{BASE_RUN}/checkpoints/100000/pretrained_model",
+                                       f"{ROB_BASE}/ours_resnet18_s1000_100k",
+                                       f"{BASE_RUN}/eval/step100000_n500_seed1000"),
+}
+SUITE_POLICY = "ours, ResNet18 ImageNet (100k)"
+
+policy_path, SUITE_ROOT, _ = POLICIES[SUITE_POLICY]
+assert os.path.exists(f"{policy_path}/config.json"), policy_path
+run_suite(policy_path, SUITE_ROOT, sorted(FACTORS), episodes=50)
 """),
     md("## 5 · Results"),
     code("""
 import pandas as pd
 from avr.analysis.robustness import load_cells, plot_robustness, summary_rows
 
-cells = load_cells(ROB_ROOT)
-clean_rate = cells[("clean", 0)]["episodes"]
-clean_rate = sum(e["success"] for e in clean_rate) / len(clean_rate)
+# every policy with suite results; level 0 = its clean success rate from the 500-episode lerobot-eval
+results, clean_rates = {}, {}
+for label, (_, root, clean_eval) in POLICIES.items():
+    cells = {k: v for k, v in load_cells(root).items() if k[0] != "clean"}
+    if not cells:
+        continue
+    results[label] = cells
+    eps = merge_eval_infos(chunk_info_paths(clean_eval))["per_episode"]
+    clean_rates[label] = sum(bool(e["success"]) for e in eps) / len(eps)
+print({k: f"{len(v)} cells, clean {clean_rates[k]:.1%}" for k, v in results.items()})
 
-df = pd.DataFrame(summary_rows(cells))
-df.to_csv(f"{ROB_ROOT}/summary.csv", index=False)
+df = pd.DataFrame(summary_rows(results[SUITE_POLICY]))
+df.to_csv(f"{SUITE_ROOT}/summary.csv", index=False)
 pct = {c: "{:.0%}" for c in ["success", "ci_lo", "ci_hi", "fail_no_touch", "fail_grasp", "fail_transport"]}
 display(df.style.format(pct).hide(axis="index"))
 
-label = "pretrained ACT (ResNet18)"
-fig = plot_robustness({label: cells}, {label: clean_rate}, path=f"{ROB_ROOT}/robustness_curves.png")
+fig = plot_robustness(results, clean_rates, path=f"{ROB_BASE}/robustness_curves.png")
 """),
     md("## 6 · Failure videos"),
     code("""
 import glob
 from IPython.display import Video
-fails = sorted(glob.glob(f"{ROB_ROOT}/videos/*_fail.mp4"))
+fails = sorted(glob.glob(f"{SUITE_ROOT}/videos/*_fail.mp4"))
 print(len(fails), "failure videos, e.g.:", *[os.path.basename(f) for f in fails[:10]], sep="\\n  ")
 Video(fails[0], embed=True, width=480) if fails else None
 """),

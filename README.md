@@ -12,7 +12,7 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 
 | Step | Goal | Status |
 |---|---|---|
-| 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint ✅ + own training 🚧) | 🚧 in progress |
+| 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
 | 2 · Analysis | Perturbation suite (lighting, textures, distractors, camera pose, image noise) 🚧; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, R3M; frozen vs finetuned); feature-shift and attention analysis | 🚧 |
 | 3 · Method | Targeted modification derived from the analysis | ⏳ |
 
@@ -39,6 +39,24 @@ Where the 83 failures stop (highest reward stage reached):
 | 4 | **successful transfer** | 417 (83.4 %) |
 
 More than half of the failures happen after a successful grasp, during the transport to the other arm.
+
+### Step 1c · Training ACT ourselves with the reference recipe
+
+Same recipe as the reference checkpoint's `train_config.json` (batch 8, lr 1e-5, seed 1000, no augmentation,
+ImageNet ResNet18), trained on Colab Free (T4, 0.275 s/step), evaluated on the same 500 seeds:
+
+| | Success | 95% CI | never touched | grasp failure | transport failure |
+|---|---|---|---|---|---|
+| Reference checkpoint | 83.4 % | 79.9 – 86.4 % | 1.6 % | 5.8 % | 9.2 % |
+| Ours, 80k steps | 72.8 % | 68.7 – 76.5 % | 1.2 % | 9.0 % | 17.0 % |
+| **Ours, 100k steps** | **77.4 %** | 73.5 – 80.8 % | 1.2 % | 8.8 % | 12.6 % |
+
+The model card says 80k steps, but the reference's `train_config.json` says 100k; the extra 20k steps mostly
+fixed transport failures. A paired test on the same episodes (exact McNemar) still finds a gap:
+the reference alone succeeds in 68 episodes, ours alone in 38 (p = 0.005). With a single training seed we
+cannot tell training-seed variance from LeRobot / dataset-format version effects (the only other config
+difference is the video decoder, `pyav` vs `torchcodec`). **Our 100k run is the baseline for all encoder
+comparisons**, which use exactly this recipe and the same evaluation seeds.
 
 ## Perturbation suite
 
