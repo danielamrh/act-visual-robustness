@@ -342,8 +342,8 @@ with open(f"{eval_root}/summary.json", "w") as f:
     json.dump({"commit": COMMIT, "run": RUN_NAME, "step": int(step), **summary}, f, indent=2)
 """),
     md("""
-### Paired comparison with the pretrained checkpoint (notebook 01)
-Both were evaluated on the same 500 seeds, so we can compare episode by episode (exact McNemar test).
+### Paired comparison with the pretrained checkpoint (and, for encoder variants, our baseline)
+All were evaluated on the same 500 seeds, so we can compare episode by episode (exact McNemar test).
 """),
     code("""
 from avr.eval.chunked import chunk_info_paths
@@ -352,11 +352,15 @@ from avr.eval.stats import mcnemar
 def successes(root):
     return [bool(e["success"]) for e in merge_eval_infos(chunk_info_paths(root))["per_episode"]]
 
-ref = successes(f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000")
 ours = successes(eval_root)
-t = mcnemar(ref, ours)
-print(f"pretrained: {sum(ref)}/{len(ref)}   ours (step {step}): {sum(ours)}/{len(ours)}")
-print(f"only pretrained succeeds: {t['only_a']}   only ours succeeds: {t['only_b']}   p = {t['p_value']:.2g}")
+references = {"pretrained": f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"}
+if VARIANT != "baseline":  # encoder variants: compare with our own baseline, same recipe
+    references["baseline"] = f"{DRIVE_ROOT}/runs/act_transfer_cube_human_resnet18_s1000/eval/step100000_n500_seed1000"
+for name, root in references.items():
+    ref = successes(root)
+    t = mcnemar(ref, ours)
+    print(f"{name}: {sum(ref)}/{len(ref)}   {VARIANT} (step {step}): {sum(ours)}/{len(ours)}   "
+          f"only {name} succeeds: {t['only_a']}   only {VARIANT}: {t['only_b']}   p = {t['p_value']:.2g}")
 """),
     md("## 6 · Training curve and in-training evaluations"),
     code("""
