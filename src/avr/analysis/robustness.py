@@ -60,6 +60,7 @@ def summary_rows(cells: dict, clean: dict | None = None) -> list[dict]:
             test = mcnemar([a for a, _ in paired], [b for _, b in paired])
             clean_rate = sum(a for a, _ in paired) / n
             row.update(clean_same_seeds=clean_rate, delta=k / n - clean_rate,
+                       retained=(k / n) / clean_rate if clean_rate else float("nan"),
                        only_clean=test["only_a"], only_perturbed=test["only_b"], p=test["p_value"])
         rows.append(row)
     tested = [r for r in rows if "p" in r]
@@ -74,11 +75,22 @@ def _factor_rank(name: str) -> int:
     return FACTOR_ORDER.index(name) if name in FACTOR_ORDER else len(FACTOR_ORDER)
 
 
-def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | None = None, path=None):
+def _clean_rate_on(cell: dict, clean_cell: dict) -> float:
+    by_seed = {e["seed"]: e["success"] for e in clean_cell["episodes"]}
+    return sum(by_seed[e["seed"]] for e in cell["episodes"]) / len(cell["episodes"])
+
+
+def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | None = None, path=None,
+                    relative_to: dict[str, dict] | None = None):
     """Small multiples, one panel per factor: success rate vs. level.
 
     `results` maps a policy label to its `load_cells()` dict; level 0 of each
     curve is that policy's clean success rate (`clean_rates`), drawn when given.
+
+    With `relative_to` ({label: that policy's clean cell}) every point is divided
+    by the policy's clean success rate *on the same seeds*: 100 % = no loss. This
+    compares robustness of policies with different clean performance. The band is
+    the Wilson CI scaled by the same factor (ignores the clean run's own noise).
     """
     import matplotlib.pyplot as plt
 
@@ -94,14 +106,19 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
         for i, (label, cells) in enumerate(results.items()):
             color = SERIES_COLORS[i]
             pts = []
-            if clean_rates and label in clean_rates:
+            if relative_to and label in relative_to:
+                pts.append((0, 1.0, None, None))
+            elif clean_rates and label in clean_rates:
                 pts.append((0, clean_rates[label], None, None))
             for level in range(1, 5):
                 if (factor, level) in cells:
                     eps = cells[(factor, level)]["episodes"]
                     k, n = sum(e["success"] for e in eps), len(eps)
                     lo, hi = wilson_ci(k, n)
-                    pts.append((level, k / n, lo, hi))
+                    scale = 1.0
+                    if relative_to and label in relative_to:
+                        scale = 1 / max(_clean_rate_on(cells[(factor, level)], relative_to[label]), 1e-9)
+                    pts.append((level, k / n * scale, lo * scale, hi * scale))
             xs, ys = [p[0] for p in pts], [p[1] for p in pts]
             ci = [p for p in pts if p[2] is not None]
             ax.fill_between([p[0] for p in ci], [p[2] for p in ci], [p[3] for p in ci],
@@ -111,7 +128,11 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
         cat = FACTORS[factor].category
         ax.set_title(factor.replace("_", " ") + (" (task-relevant)" if cat == "task" else ""),
                      fontsize=9.5, color=TEXT_PRIMARY, loc="left")
-        ax.set_ylim(0, 1.02)
+        if relative_to:
+            ax.axhline(1.0, color=TEXT_SECONDARY, linewidth=0.8, linestyle=(0, (3, 3)))
+            ax.set_ylim(0, 2.0)
+        else:
+            ax.set_ylim(0, 1.02)
         ax.set_xticks(range(5))
         ax.grid(axis="y", color=GRID, linewidth=0.8)
         ax.tick_params(colors=TEXT_SECONDARY, labelsize=8, length=0)
@@ -123,15 +144,17 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
     for ax in axes[len(factors):]:
         ax.set_visible(False)
     for ax in axes[::ncols]:
-        ax.set_ylabel("success rate", fontsize=8.5, color=TEXT_SECONDARY)
+        ax.set_ylabel("success / clean (same seeds)" if relative_to else "success rate", fontsize=8.5,
+                      color=TEXT_SECONDARY)
     for ax in axes[max(0, len(factors) - ncols):len(factors)]:  # lowest panel of each column
         ax.set_xlabel("severity level", fontsize=8.5, color=TEXT_SECONDARY)
         ax.xaxis.set_tick_params(labelbottom=True)
     if len(results) > 1:
         handles, labels = axes[0].get_legend_handles_labels()
         fig.legend(handles, labels, loc="upper right", frameon=False, fontsize=9, ncols=len(results))
-    fig.suptitle("Success rate under visual perturbations (shaded: 95% CI)", x=0.01, ha="left",
-                 fontsize=11, color=TEXT_PRIMARY)
+    title = ("Success retained under visual perturbations, relative to each policy's clean rate on the same seeds"
+             if relative_to else "Success rate under visual perturbations (shaded: 95% CI)")
+    fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=TEXT_PRIMARY)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     if path:
         fig.savefig(path, dpi=150, facecolor=SURFACE)

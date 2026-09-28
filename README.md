@@ -93,6 +93,46 @@ McNemar test, Holm-corrected over all 49 cells.
   supervised CNN features (ImageNet-C). Blur mostly breaks the handover (60 % transport failures at level 4), noise
   already the approach (42 % never touch the cube).
 
+### Step 2c · Frozen DINOv2: worse overall, distracted by objects, still reads shadows
+
+Same recipe (100k steps, seed 1000), only the encoder changed: frozen DINOv2 ViT-S/14 at 224 × 294 instead of the
+finetuned ImageNet ResNet18 at 480 × 640.
+
+| 500 clean episodes | Success | never touched | grasp failure | transport failure |
+|---|---|---|---|---|
+| Baseline (ResNet18, finetuned) | 77.4 % | 1.2 % | 8.8 % | 12.6 % |
+| DINOv2 ViT-S/14, frozen | **45.8 %** | **20.2 %** | 12.0 % | 22.0 % |
+
+Paired on the same 500 seeds the baseline alone succeeds in 195 episodes, DINOv2 alone in 37 (p = 4e-27). One in five
+DINOv2 episodes never finds the cube. A likely reason (not yet tested): at the ViT's input resolution the ~20 px cube
+shrinks to ~9 px, less than one 14 px patch, and a frozen encoder cannot learn to represent it more precisely. So this
+comparison mixes *frozen vs. finetuned* with *low vs. full resolution*.
+
+Under the suite (paired, 50 episodes per cell; clean on these seeds: baseline 70 %, DINOv2 34 %), what each policy
+**retains** relative to its own clean rate:
+
+| Perturbation | Baseline | DINOv2 frozen |
+|---|---|---|
+| blur, level 4 | 6 % (retains 9 %) | 22 % (retains **65 %**) |
+| noise, level 3 | 36 % (51 %) | 22 % (65 %) |
+| background, level 3 / 4 | 70 / 66 % (~97 %) | **8 / 0 %** (24 / 0 %) |
+| distractors, level 3 / 4 | 64 / 68 % (~94 %) | **12 / 14 %** (~38 %) |
+| camera pose, level 4 | 54 % (77 %) | 10 % (29 %) |
+| light intensity / color, cube color | ≈ clean | ≈ clean |
+| shadows off | 36 % (51 %) | **6 %** (18 %) |
+
+* **Frozen DINOv2 is pulled towards other objects and patterns.** With distractors or a checkerboard background,
+  52–76 % of its episodes never touch the cube (baseline 0–6 %): it heads for the wrong target. DINOv2's features are
+  known to highlight salient objects in general; the finetuned ResNet has learned to ignore everything but the cube.
+* **It is relatively more robust to blur** (and somewhat to moderate noise), in line with the literature on
+  self-supervised ViT features. At the strongest noise / JPEG levels both collapse.
+* **It relies on shadows just as much:** shadows off drops it from 34 % to 6 % (p = 0.003); with the light rotated 15°,
+  56 % succeed with shadows and 22 % without (p = 0.0009). With two very different encoders relying on shadows, this
+  looks like a property of the task and the top-down camera (the only height cue in the image) rather than of the encoder.
+
+After Holm correction over 49 cells only background / noise / JPEG at level 4 are significant for DINOv2 (its low clean
+rate limits power); the distractor effect is consistent across all four levels.
+
 ## Perturbation suite
 
 `src/avr/perturb` wraps the gym-aloha scene and changes **only what the camera sees**, per episode:

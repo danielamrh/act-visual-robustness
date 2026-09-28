@@ -534,13 +534,17 @@ print({k: f"{len(v)} cells, clean {clean_rates[k]:.1%}" for k, v in results.item
 clean_cell = load_cells(SUITE_ROOT)[("clean", 0)]
 df = pd.DataFrame(summary_rows(results[SUITE_POLICY], clean=clean_cell))
 df.to_csv(f"{SUITE_ROOT}/summary.csv", index=False)
-cols = ["factor", "level", "category", "n", "success", "ci_lo", "ci_hi", "clean_same_seeds", "delta",
+cols = ["factor", "level", "category", "n", "success", "ci_lo", "ci_hi", "clean_same_seeds", "delta", "retained",
         "only_clean", "only_perturbed", "p_holm", "fail_no_touch", "fail_grasp", "fail_transport"]
 fmt = {c: "{:.0%}" for c in ["success", "ci_lo", "ci_hi", "clean_same_seeds", "fail_no_touch", "fail_grasp", "fail_transport"]}
-fmt.update(delta="{:+.0%}", p_holm="{:.2g}")
+fmt.update(delta="{:+.0%}", retained="{:.0%}", p_holm="{:.2g}")
 display(df[cols].style.format(fmt).hide(axis="index"))
 
 fig = plot_robustness(results, clean_rates, path=f"{ROB_BASE}/robustness_curves.png")
+
+# policies differ in clean performance: compare what each keeps relative to its own clean rate (same seeds)
+clean_cells = {label: load_cells(POLICIES[label].robustness)[("clean", 0)] for label in results}
+fig_rel = plot_robustness(results, relative_to=clean_cells, path=f"{ROB_BASE}/robustness_curves_relative.png")
 """),
     md("""
 ### 5b · Shadow hypothesis
