@@ -13,6 +13,9 @@ from typing import NamedTuple
 BASE_RUN_NAME = "act_transfer_cube_human_resnet18_s1000"
 VARIANT_PREFIX, VARIANT_SUFFIX = "actenc_transfer_cube_human_", "_s1000"
 FINAL_STEP = "100000"
+# fixed order (and thus fixed figure colors) for the planned variants; others are appended
+VARIANT_ORDER = ["dinov2_vits14_frozen", "dinov2_vits14_ft", "resnet18_scratch_ft",
+                 "clip_vitb16_frozen", "siglip_vitb16_frozen"]
 
 
 class PolicyPaths(NamedTuple):
@@ -39,8 +42,11 @@ def policy_registry(drive_root: str) -> dict[str, PolicyPaths]:
             f"{probe}/ours_resnet18_s1000_100k",
         ),
     }
-    for run in sorted(glob.glob(f"{runs}/{VARIANT_PREFIX}*{VARIANT_SUFFIX}")):
-        variant = os.path.basename(run).removeprefix(VARIANT_PREFIX).removesuffix(VARIANT_SUFFIX)
+    found = {os.path.basename(run).removeprefix(VARIANT_PREFIX).removesuffix(VARIANT_SUFFIX): run
+             for run in glob.glob(f"{runs}/{VARIANT_PREFIX}*{VARIANT_SUFFIX}")}
+    order = [v for v in VARIANT_ORDER if v in found] + sorted(v for v in found if v not in VARIANT_ORDER)
+    for variant in order:
+        run = found[variant]
         registry[f"ours, {variant} (100k)"] = PolicyPaths(
             f"{run}/checkpoints/{FINAL_STEP}/pretrained_model",
             f"{rob}/ours_{variant}_s1000_100k",
@@ -53,3 +59,11 @@ def policy_registry(drive_root: str) -> dict[str, PolicyPaths]:
 def trained(registry: dict[str, PolicyPaths]) -> dict[str, PolicyPaths]:
     """Entries whose final checkpoint exists."""
     return {k: v for k, v in registry.items() if os.path.exists(f"{v.checkpoint}/config.json")}
+
+
+def policy_colors(registry: dict) -> dict[str, str]:
+    """A fixed categorical color per policy (registry order), used by every figure so a
+    policy keeps its color no matter which subset a plot shows."""
+    from avr.analysis.robustness import SERIES_COLORS
+
+    return {label: SERIES_COLORS[i % len(SERIES_COLORS)] for i, label in enumerate(registry)}

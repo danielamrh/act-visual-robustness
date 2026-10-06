@@ -45,3 +45,27 @@ def test_load_figure_maps_roundtrip(tmp_path):
     maps = load_figure_maps(path)
     assert set(maps) == {"None_L0", "noise_L3"}
     assert set(maps["None_L0"][50]) == {"img", "occl"}
+
+
+def test_policy_colors_follow_the_entity(tmp_path):
+    from avr.registry import policy_colors
+
+    reg = policy_registry(str(tmp_path))
+    colors = policy_colors(reg)
+    assert len(set(colors.values())) == len(colors)
+    # a subset (e.g. only policies with suite results) keeps the same colors
+    subset = {k: reg[k] for k in list(reg)[1:]}
+    assert all(policy_colors(reg)[k] == colors[k] for k in subset)
+
+
+def test_variant_colors_do_not_depend_on_other_folders(tmp_path):
+    from avr.registry import policy_colors
+
+    runs = tmp_path / "runs"
+    (runs / "actenc_transfer_cube_human_dinov2_vits14_frozen_s1000").mkdir(parents=True)
+    before = policy_colors(policy_registry(str(tmp_path)))
+    (runs / "actenc_transfer_cube_human_clip_vitb16_frozen_s1000").mkdir()  # sorts before dinov2
+    (runs / "actenc_transfer_cube_human_aaa_new_ft_s1000").mkdir()
+    after = policy_colors(policy_registry(str(tmp_path)))
+    label = "ours, dinov2_vits14_frozen (100k)"
+    assert before[label] == after[label]

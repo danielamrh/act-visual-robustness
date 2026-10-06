@@ -81,7 +81,7 @@ def _clean_rate_on(cell: dict, clean_cell: dict) -> float:
 
 
 def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | None = None, path=None,
-                    relative_to: dict[str, dict] | None = None):
+                    relative_to: dict[str, dict] | None = None, colors: dict[str, str] | None = None):
     """Small multiples, one panel per factor: success rate vs. level.
 
     `results` maps a policy label to its `load_cells()` dict; level 0 of each
@@ -104,7 +104,7 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
     for ax, factor in zip(axes, factors):
         ax.set_facecolor(SURFACE)
         for i, (label, cells) in enumerate(results.items()):
-            color = SERIES_COLORS[i]
+            color = (colors or {}).get(label, SERIES_COLORS[i])
             pts = []
             if relative_to and label in relative_to:
                 pts.append((0, 1.0, None, None))

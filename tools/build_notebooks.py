@@ -540,11 +540,14 @@ fmt = {c: "{:.0%}" for c in ["success", "ci_lo", "ci_hi", "clean_same_seeds", "f
 fmt.update(delta="{:+.0%}", retained="{:.0%}", p_holm="{:.2g}")
 display(df[cols].style.format(fmt).hide(axis="index"))
 
-fig = plot_robustness(results, clean_rates, path=f"{ROB_BASE}/robustness_curves.png")
+from avr.registry import policy_colors
+COLORS = policy_colors(POLICIES)
+fig = plot_robustness(results, clean_rates, path=f"{ROB_BASE}/robustness_curves.png", colors=COLORS)
 
 # policies differ in clean performance: compare what each keeps relative to its own clean rate (same seeds)
 clean_cells = {label: load_cells(POLICIES[label].robustness)[("clean", 0)] for label in results}
-fig_rel = plot_robustness(results, relative_to=clean_cells, path=f"{ROB_BASE}/robustness_curves_relative.png")
+fig_rel = plot_robustness(results, relative_to=clean_cells, path=f"{ROB_BASE}/robustness_curves_relative.png",
+                          colors=COLORS)
 """),
     md("""
 ### 5b · Shadow hypothesis
@@ -650,6 +653,7 @@ Only policies with suite results are shown.
     code("""
 from avr.analysis.attention import plot_shift_vs_drop
 from avr.analysis.robustness import load_cells, summary_rows
+from avr.registry import policy_colors
 
 pairs = {}
 for label, rows in probe_rows.items():
@@ -661,7 +665,8 @@ for label, rows in probe_rows.items():
 
 PROBE_FIG = f"{DRIVE_ROOT}/probe"
 for metric in ("action_shift", "feature_shift"):
-    fig, rhos = plot_shift_vs_drop(pairs, metric=metric, path=f"{PROBE_FIG}/{metric}_vs_drop.png")
+    fig, rhos = plot_shift_vs_drop(pairs, metric=metric, path=f"{PROBE_FIG}/{metric}_vs_drop.png",
+                                   colors=policy_colors(policy_registry(DRIVE_ROOT)))
     print(metric, {k: round(v, 2) for k, v in rhos.items()})
 """),
     md("""

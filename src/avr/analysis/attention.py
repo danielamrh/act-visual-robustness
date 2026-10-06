@@ -98,7 +98,8 @@ def cell_means(rows: list[dict], metric: str) -> dict[tuple[str, int], tuple[flo
     return out
 
 
-def plot_shift_vs_drop(policies: dict[str, tuple[list[dict], list[dict]]], metric="action_shift", path=None):
+def plot_shift_vs_drop(policies: dict[str, tuple[list[dict], list[dict]]], metric="action_shift", path=None,
+                       colors: dict[str, str] | None = None):
     """Scatter per policy: probe shift of each cell (x) vs its paired success drop (y).
 
     `policies` maps a label to (probe rows, robustness summary rows with a `delta` column).
@@ -117,10 +118,10 @@ def plot_shift_vs_drop(policies: dict[str, tuple[list[dict], list[dict]]], metri
                if (r["factor"], r["level"]) in means and "delta" in r]  # fmt: skip
         if len(pts) < 3:  # e.g. only a clean run, no perturbation suite for this policy
             print(f"skipping {label}: {len(pts)} cells with both probe and suite results")
-            continue  # keep i, so every policy keeps its color
+            continue
         xs, ys = zip(*pts)
         rhos[label] = float(spearmanr(xs, ys).statistic)
-        ax.scatter(xs, ys, s=34, color=SERIES_COLORS[i], edgecolor=SURFACE, linewidth=1.5,
+        ax.scatter(xs, ys, s=34, color=(colors or {}).get(label, SERIES_COLORS[i]), edgecolor=SURFACE, linewidth=1.5,
                    label=f"{label} (Spearman ρ = {rhos[label]:.2f})")
     ax.axhline(0, color=GRID, linewidth=1)
     ax.set_xlabel(metric.replace("_", " ") + " (clean vs. perturbed image, same state)", fontsize=9, color=TEXT_SECONDARY)
