@@ -13,7 +13,7 @@ augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
 | Step | Goal | Status |
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
-| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and occlusion analysis (tooling ✅) | 🚧 |
+| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and occlusion analysis ✅ | 🚧 |
 | 3 · Method | Targeted modification derived from the analysis | ⏳ |
 
 ## Results
@@ -132,6 +132,39 @@ Under the suite (paired, 50 episodes per cell; clean on these seeds: baseline 70
 
 After Holm correction over 49 cells only background / noise / JPEG at level 4 are significant for DINOv2 (its low clean
 rate limits power); the distractor effect is consistent across all four levels.
+
+### Step 2d · What moves the representation vs. what moves the decision
+
+Because every perturbation is visual-only, a clean episode's actions can be replayed under any perturbation: the robot
+passes through exactly the same states, only the image differs. At 8 probe steps per episode (10 seeds) we compare the
+policy's internals on the clean vs. perturbed image of the *same* state: **feature shift** (cosine distance of the
+encoder's feature maps) and **action shift** (mean |Δ| of the predicted 100-step action chunk, rad). This takes ~10 min
+per policy instead of ~3 h for the closed-loop suite, and still ranks the damage: Spearman ρ between action shift and
+the paired success change over all factor × level cells is −0.61 (ResNet18) and −0.56 (frozen DINOv2).
+
+Mean over levels 1–4:
+
+| Perturbation | ResNet18 (finetuned): feature → action shift | DINOv2 (frozen): feature → action shift |
+|---|---|---|
+| background | **0.38** → 0.011 | 0.26 → **0.040** |
+| distractors | 0.07 → 0.015 | **0.03** → **0.037** |
+| blur | 0.18 → 0.032 | **0.03** → 0.015 |
+| noise | 0.23 → 0.029 | 0.21 → 0.031 |
+| shadows off | 0.14 → 0.040 | 0.11 → 0.032 |
+
+* **How far the features move says little about the damage.** For the finetuned ResNet a new background moves the
+  features more than any other perturbation, yet barely changes the decision: the policy has learned to ignore it.
+  Frozen DINOv2's decision moves 3.5× more for the same background, matching its collapse in the suite.
+* **Distractors change few tokens but flip DINOv2's decision:** its mean feature shift is *smaller* than the ResNet's,
+  its action shift 2.5× larger. This is the probe-side view of "heads for the wrong object". It also explains why the
+  feature shift predicts DINOv2's damage worse (ρ = −0.42) than its action shift does (−0.56).
+* **DINOv2's blur robustness sits in the representation itself:** its features barely move under blur.
+* **Shadows:** "rotated light without shadows" probes the same as "shadows off" at every level, for all policies.
+* The reference checkpoint and our baseline (same recipe) have near-identical probe profiles.
+* **Where the policy looks** (occlusion sensitivity: how much the action chunk changes when a gray 40 px patch hides each
+  location, first seed): the ResNet18 recipe focuses on the cube and the approaching gripper; frozen DINOv2's sensitivity
+  spreads over the whole table and background, consistent with its reliance on global context. ACT's decoder
+  cross-attention is diffuse for both and piles up on empty background tokens, so it is not used as an explanation.
 
 ## Perturbation suite
 
