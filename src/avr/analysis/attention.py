@@ -115,6 +115,9 @@ def plot_shift_vs_drop(policies: dict[str, tuple[list[dict], list[dict]]], metri
         means = cell_means(probe_rows, metric)
         pts = [(means[(r["factor"], r["level"])][0], r["delta"]) for r in summary
                if (r["factor"], r["level"]) in means and "delta" in r]  # fmt: skip
+        if len(pts) < 3:  # e.g. only a clean run, no perturbation suite for this policy
+            print(f"skipping {label}: {len(pts)} cells with both probe and suite results")
+            continue  # keep i, so every policy keeps its color
         xs, ys = zip(*pts)
         rhos[label] = float(spearmanr(xs, ys).statistic)
         ax.scatter(xs, ys, s=34, color=SERIES_COLORS[i], edgecolor=SURFACE, linewidth=1.5,
