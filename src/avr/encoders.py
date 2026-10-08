@@ -14,6 +14,7 @@ encoders pretrained with other statistics (CLIP, SigLIP) re-normalize.
 | resnet18_imagenet  | ResNet18 (FrozenBatchNorm)      | ImageNet-1k supervised   | 15 x 20 = 300           |
 | resnet18_scratch   | ResNet18 (GroupNorm)            | none                     | 15 x 20 = 300           |
 | dinov2_vits14      | ViT-S/14                        | DINOv2 self-supervised   | 16 x 21 = 336 (224x294) |
+| dinov2_vits14_hr   | ViT-S/14, 2x2 token pooling     | DINOv2 self-supervised   | 16 x 21 = 336 (448x588) |
 | clip_vitb16        | ViT-B/16                        | CLIP image-text          | 14 x 18 = 252 (224x288) |
 | siglip_vitb16      | ViT-B/16                        | SigLIP image-text        | 14 x 18 = 252 (224x288) |
 
@@ -38,12 +39,16 @@ class EncoderSpec:
     kind: str  # "resnet" | "timm"
     timm_name: str | None = None
     image_size: tuple[int, int] | None = None  # (H, W) fed to the encoder; None = native
+    pool: int = 1  # average-pool the patch-token grid by this factor (keeps ACT's token count)
 
 
 ENCODERS = {
     "resnet18_imagenet": EncoderSpec("resnet"),
     "resnet18_scratch": EncoderSpec("resnet"),
     "dinov2_vits14": EncoderSpec("timm", "vit_small_patch14_dinov2.lvd142m", (224, 294)),
+    # same model at twice the input resolution; 2x2 token pooling restores the 16 x 21 grid, so only the
+    # resolution the encoder sees changes (the ~20 px cube spans >1 patch instead of <1)
+    "dinov2_vits14_hr": EncoderSpec("timm", "vit_small_patch14_dinov2.lvd142m", (448, 588), pool=2),
     "clip_vitb16": EncoderSpec("timm", "vit_base_patch16_clip_224.openai", (224, 288)),
     "siglip_vitb16": EncoderSpec("timm", "vit_base_patch16_siglip_224.webli", (224, 288)),
 }
@@ -73,12 +78,13 @@ class ResNetEncoder(nn.Module):
 class TimmViTEncoder(nn.Module):
     """Patch tokens of a timm ViT, reshaped to a (B, C, h, w) grid (prefix tokens dropped)."""
 
-    def __init__(self, timm_name: str, image_size: tuple[int, int], pretrained: bool = True):
+    def __init__(self, timm_name: str, image_size: tuple[int, int], pretrained: bool = True, pool: int = 1):
         super().__init__()
         import timm
 
         self.vit = timm.create_model(timm_name, pretrained=pretrained, num_classes=0, dynamic_img_size=True)
         self.image_size = tuple(image_size)
+        self.pool = pool
         self.out_channels = self.vit.num_features
         self.patch = self.vit.patch_embed.patch_size[0]
         cfg = self.vit.pretrained_cfg
@@ -94,7 +100,10 @@ class TimmViTEncoder(nn.Module):
         x = x * self.scale + self.shift
         tokens = self.vit.forward_features(x)[:, self.vit.num_prefix_tokens :]
         h, w = self.image_size[0] // self.patch, self.image_size[1] // self.patch
-        return {"feature_map": tokens.transpose(1, 2).reshape(x.shape[0], -1, h, w)}
+        fmap = tokens.transpose(1, 2).reshape(x.shape[0], -1, h, w)
+        if self.pool > 1:
+            fmap = F.avg_pool2d(fmap, self.pool)
+        return {"feature_map": fmap}
 
 
 class FrozenEncoder(nn.Module):
@@ -125,7 +134,7 @@ def build_encoder(name: str, freeze: bool = False, pretrained: bool = True) -> n
     if spec.kind == "resnet":
         encoder = ResNetEncoder(pretrained=pretrained and name == "resnet18_imagenet")
     else:
-        encoder = TimmViTEncoder(spec.timm_name, spec.image_size, pretrained=pretrained)
+        encoder = TimmViTEncoder(spec.timm_name, spec.image_size, pretrained=pretrained, pool=spec.pool)
     if freeze:
         if name == "resnet18_scratch":
             raise ValueError("a frozen randomly initialized encoder makes no sense")

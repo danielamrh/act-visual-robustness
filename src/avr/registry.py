@@ -15,7 +15,7 @@ VARIANT_PREFIX, VARIANT_SUFFIX = "actenc_transfer_cube_human_", "_s1000"
 FINAL_STEP = "100000"
 # fixed order (and thus fixed figure colors) for the planned variants; others are appended
 VARIANT_ORDER = ["dinov2_vits14_frozen", "dinov2_vits14_ft", "resnet18_scratch_ft",
-                 "clip_vitb16_frozen", "siglip_vitb16_frozen"]
+                 "clip_vitb16_frozen", "siglip_vitb16_frozen", "dinov2_vits14_hr_frozen"]
 
 
 class PolicyPaths(NamedTuple):

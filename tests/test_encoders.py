@@ -12,6 +12,7 @@ from avr.encoders import IMAGENET_MEAN, IMAGENET_STD, build_encoder  # noqa: E40
 EXPECTED = {
     "resnet18_scratch": (512, 15, 20),
     "dinov2_vits14": (384, 16, 21),
+    "dinov2_vits14_hr": (384, 16, 21),  # 32 x 42 patches pooled 2x2
     "clip_vitb16": (768, 14, 18),
     "siglip_vitb16": (768, 14, 18),
 }

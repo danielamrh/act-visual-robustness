@@ -133,6 +133,24 @@ Under the suite (paired, 50 episodes per cell; clean on these seeds: baseline 70
 After Holm correction over 49 cells only background / noise / JPEG at level 4 are significant for DINOv2 (its low clean
 rate limits power); the distractor effect is consistent across all four levels.
 
+### Step 2c · Finetuning DINOv2 makes it worse
+
+The obvious next test: if freezing was the problem, finetuning DINOv2 (same 224 × 294 input, same recipe, encoder
+learning rate 1e-5 as for the ResNet) should close the gap. It does the opposite:
+
+| 500 clean episodes | Success | never touched | grasp failure | transport failure | final train loss |
+|---|---|---|---|---|---|
+| Baseline (ResNet18, finetuned) | 77.4 % | 1.2 % | 8.8 % | 12.6 % | ~0.05 |
+| DINOv2 ViT-S/14, frozen | 45.8 % | 20.2 % | 12.0 % | 22.0 % | ~0.06 |
+| DINOv2 ViT-S/14, **finetuned** | **32.8 %** | **35.2 %** | 9.6 % | 22.4 % | **~0.045** |
+
+Paired: the baseline alone succeeds in 253 episodes, finetuned DINOv2 alone in 30 (p = 4e-45). The finetuned ViT fits
+the 50 demonstrations best (lowest training loss) and generalizes worst: consistent with overfitting / distorting the
+pretrained features on a tiny dataset (cf. Kumar et al., 2022, *Fine-Tuning can Distort Pretrained Features*), which the
+ResNet with frozen BatchNorm and convolutional inductive bias resists. It also means freezing was not DINOv2's main
+problem. Next: `dinov2_vits14_hr`, the same frozen DINOv2 at 448 × 588 input with 2 × 2 token pooling, so ACT gets the
+same 16 × 21 tokens and **only the resolution** changes (the ~20 px cube then spans more than one patch).
+
 ### Step 2d · What moves the representation vs. what moves the decision
 
 Because every perturbation is visual-only, a clean episode's actions can be replayed under any perturbation: the robot
@@ -199,6 +217,7 @@ swapped for any encoder in [`src/avr/encoders.py`](src/avr/encoders.py), frozen 
 | `resnet18_imagenet` | ImageNet-1k supervised (= baseline) | 15 × 20 |
 | `resnet18_scratch` | none (GroupNorm instead of frozen BatchNorm) | 15 × 20 |
 | `dinov2_vits14` | DINOv2 self-supervised | 16 × 21 at 224 × 294 |
+| `dinov2_vits14_hr` | DINOv2 self-supervised | 16 × 21 from 448 × 588 (2 × 2 token pooling) |
 | `clip_vitb16` | CLIP image-text | 14 × 18 at 224 × 288 |
 | `siglip_vitb16` | SigLIP image-text | 14 × 18 at 224 × 288 |
 
