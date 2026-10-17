@@ -127,8 +127,10 @@ Under the suite (paired, 50 episodes per cell; clean on these seeds: baseline 70
 * **It is relatively more robust to blur** (and somewhat to moderate noise), in line with the literature on
   self-supervised ViT features. At the strongest noise / JPEG levels both collapse.
 * **It relies on shadows just as much:** shadows off drops it from 34 % to 6 % (p = 0.003); with the light rotated 15°,
-  56 % succeed with shadows and 22 % without (p = 0.0009). With two very different encoders relying on shadows, this
-  looks like a property of the task and the top-down camera (the only height cue in the image) rather than of the encoder.
+  56 % succeed with shadows and 22 % without (p = 0.0009). With two very different encoders relying on shadows, we first
+  read this as a property of the task and the top-down camera (the only height cue in the image). **Finetuned DINOv2
+  (below) does not rely on shadows, so this reading was wrong:** whether a policy uses the shadow cue depends on the
+  learned representation, not only on the task.
 
 After Holm correction over 49 cells only background / noise / JPEG at level 4 are significant for DINOv2 (its low clean
 rate limits power); the distractor effect is consistent across all four levels.
@@ -173,6 +175,31 @@ statistics. Its action shift at light intensity level 4 is almost twice the larg
 level 4, 0.055, where the baseline dropped to 0 %). **Prediction for the suite**, relative to its own clean rate on the
 same seeds: finetuned DINOv2 collapses under light intensity (levels 3–4), light color (level 4), table color and
 camera pose, where the baseline barely moved, and stays near its clean rate under noise, JPEG and distractors.
+
+#### Outcome: the probe predicted the new policy's weak spots
+
+Targeted suite on finetuned DINOv2 (6 factors + shadow diagnostics, 50 episodes per cell; clean on these seeds 28 %).
+Success retained relative to that clean rate, levels 1 → 4:
+
+| Perturbation | Finetuned DINOv2 | Predicted | |
+|---|---|---|---|
+| light intensity | 129 / 71 / 36 / **0 %** (level 4: p_Holm = 0.004, 94 % never touch the cube) | collapse at 3–4 | ✅ |
+| light color | 100 / 100 / 64 / 21 % | collapse at 4 | ✅ direction (n.s. after Holm) |
+| table color | 100 / 64 / 43 / 29 % | collapse | ✅ graded |
+| camera pose | 129 / 93 / 43 / 64 % | collapse | ✅ partly; the baseline also loses here (71 / 77 %), so "baseline barely moved" was wrong |
+| noise | 114 / 107 / 100 / **86 %** (baseline: 51 / 0 % at levels 3 / 4) | robust | ✅ |
+| distractors | 93 / 93 / 100 / 107 % (frozen DINOv2: ~38 % at 3–4) | robust | ✅ |
+
+Over these 24 cells the probe's action shift, measured *before* the suite, ranks the suite's paired success change with
+Spearman ρ = −0.72 (p = 7e-5), better than on the two policies the probe was developed on (−0.61, −0.56). The cheap
+replay probe (~10 min) is a usable predictor of a new policy's robustness profile; with a 28 % clean rate only light
+intensity level 4 survives Holm correction on its own, so the per-cell evidence is weak but the pattern is consistent.
+
+**Not predicted:** finetuned DINOv2 does **not** rely on shadows (shadows off: 30 % vs. 28 % clean; rotated light
+without shadows: 79–107 %), unlike the baseline (70 → 36 %) and frozen DINOv2 (34 → 6 %). The probe's moderate shadow
+action shift (0.028) had hinted at less dependence, but not at none. Together with the photometric sensitivity, it looks
+like finetuning traded the geometric shadow cue for absolute brightness / color statistics, which happen to be constant
+in the training data.
 
 ### Step 2d · What moves the representation vs. what moves the decision
 
