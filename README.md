@@ -151,6 +151,29 @@ ResNet with frozen BatchNorm and convolutional inductive bias resists. It also m
 problem. Next: `dinov2_vits14_hr`, the same frozen DINOv2 at 448 × 588 input with 2 × 2 token pooling, so ACT gets the
 same 16 × 21 tokens and **only the resolution** changes (the ~20 px cube then spans more than one patch).
 
+#### Pre-registered prediction: finetuning swapped *what* DINOv2 is sensitive to
+
+*Written before running the perturbation suite on finetuned DINOv2, from the probe alone (git history has the timestamp).*
+
+Mean action shift over levels 1–4 (rad):
+
+| Perturbation | Baseline | DINOv2 frozen | DINOv2 finetuned |
+|---|---|---|---|
+| light intensity | 0.018 | 0.019 | **0.063** (level 4: **0.101**) |
+| light color | 0.016 | 0.020 | **0.038** (level 4: 0.083) |
+| table color | 0.017 | 0.020 | **0.037** |
+| camera pose | 0.044 | 0.042 | **0.066** |
+| distractors | 0.015 | 0.037 | **0.009** |
+| noise | 0.029 | 0.031 | **0.007** |
+| JPEG | 0.026 | 0.025 | **0.011** |
+
+Finetuning made DINOv2 nearly invariant to noise, JPEG and distractors, and very sensitive to global photometric
+changes and the camera pose, which never vary across the 50 demonstrations: it appears to have latched onto fixed image
+statistics. Its action shift at light intensity level 4 is almost twice the largest the baseline ever showed (noise
+level 4, 0.055, where the baseline dropped to 0 %). **Prediction for the suite**, relative to its own clean rate on the
+same seeds: finetuned DINOv2 collapses under light intensity (levels 3–4), light color (level 4), table color and
+camera pose, where the baseline barely moved, and stays near its clean rate under noise, JPEG and distractors.
+
 ### Step 2d · What moves the representation vs. what moves the decision
 
 Because every perturbation is visual-only, a clean episode's actions can be replayed under any perturbation: the robot
