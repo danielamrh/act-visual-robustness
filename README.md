@@ -3,20 +3,69 @@
 Self-study final project following Stanford
 [CS231n: Deep Learning for Computer Vision](https://cs231n.stanford.edu/) (Spring 2026 curriculum).
 
-Imitation-learning policies like [ACT](https://tonyzhaozh.github.io/aloha/) see the world only through
-a camera, and small visual changes (different lighting, a new table colour, a distractor object, a
-slightly moved camera) can break them. This project measures **which visual representations and
-augmentations make an ACT policy robust**, and why, in the ALOHA simulation.
+Imitation-learning policies like [ACT](https://tonyzhaozh.github.io/aloha/) see the world only through a camera. This
+project trains ACT policies with different visual encoders on the ALOHA *transfer cube* task in simulation, breaks them
+with purely visual perturbations, and works out **what each policy actually relies on**.
+
+## Key findings
+
+1. **The baseline reads shadows.** The ImageNet-ResNet18 ACT ignores lighting color, table color, background and even
+   the cube's color, but switching shadows off halves its success (70 → 36 %, paired p = 0.003). A pre-registered
+   diagnostic shows the light-direction failure is explained by the shadows: from a top-down camera they are the only
+   height cue.
+2. **Every encoder fails differently.** With the same recipe, frozen DINOv2 is pulled towards distractor objects and
+   backgrounds (up to 76 % of episodes never touch the cube) but is relatively robust to blur; finetuned DINOv2 is
+   nearly immune to noise and distractors, collapses under brightness and color changes (0 % at light intensity
+   level 4), and does *not* use shadows. Neither matches the ResNet in clean performance (46 % / 33 % vs. 77 %).
+3. **Representation shift is not damage.** A new background moves the ResNet's features more than any other
+   perturbation and barely changes its actions; distractors move frozen DINOv2's features little and flip its decision.
+4. **A 10-minute probe predicts a new policy's weak spots.** Replaying clean actions under each perturbation (states stay
+   identical, only pixels change) and measuring the shift of the predicted action chunk ranks the closed-loop damage.
+   Pre-registered on finetuned DINOv2 before running its suite: Spearman ρ = −0.72 (p = 7e-5).
+
+![Success retained relative to each policy's clean rate (same seeds), per perturbation and severity](results/robustness_curves_relative.png)
+
+| Policy (100k steps, seed 1000) | Clean success (500 ep.) | Never finds the cube | Breaks under | Robust to |
+|---|---|---|---|---|
+| Reference checkpoint (LeRobot Hub) | 83.4 % | 1.6 % | – | – |
+| **Baseline:** ACT, ImageNet ResNet18, finetuned | 77.4 % | 1.2 % | shadows / light direction, strong noise, blur, JPEG | color, background, distractors |
+| ACT, DINOv2 ViT-S/14, frozen | 45.8 % | 20.2 % | distractors, background, camera pose, shadows | blur, color, lighting |
+| ACT, DINOv2 ViT-S/14, finetuned | 32.8 % | 35.2 % | brightness, light / table color, camera pose | noise, distractors, shadows |
+| ACT, DINOv2 ViT-S/14 at 2× resolution, frozen | *training* | | | |
+
+<table>
+<tr>
+<td><img src="results/occlusion_resnet18_baseline.png" alt="Occlusion sensitivity of the ResNet18 baseline"></td>
+</tr>
+<tr>
+<td><img src="results/occlusion_dinov2_frozen.png" alt="Occlusion sensitivity of frozen DINOv2"></td>
+</tr>
+</table>
+
+*Occlusion sensitivity (how much the predicted action chunk changes when a gray patch hides each location; orange =
+shadows) for the same state under six conditions. The ResNet baseline (top) focuses on the cube and the approaching
+gripper; frozen DINOv2 (bottom) depends on the whole table and background.*
+
+## Setup
+
+| | |
+|---|---|
+| Task | `gym_aloha/AlohaTransferCube-v0`: the right arm picks up a cube and hands it to the left arm; one top-down 640 × 480 camera |
+| Policy | [LeRobot](https://github.com/huggingface/lerobot) ACT (0.6.1), trained on the 50 human demos of `lerobot/aloha_sim_transfer_cube_human` with the reference recipe: batch 8, lr 1e-5, 100k steps, no augmentation |
+| Encoders | swapped through a LeRobot plugin, everything else in ACT unchanged ([details](#encoder-variants)) |
+| Perturbations | 11 visual factors × 4 severity levels, physics bit-identical to the clean scene ([details](#perturbation-suite)) |
+| Evaluation | clean: 500 episodes (seeds 1000–1499); suite: 50 episodes per cell (seeds 1000–1049). Every comparison is **paired on the same seeds** (exact McNemar test, Holm correction over cells) |
+| Compute | Google Colab Free, one T4: 7.6–12.7 h per 100k-step run, ~3 h per suite, ~10 min per probe |
 
 ## Plan
 
 | Step | Goal | Status |
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
-| 2 · Analysis | Perturbation suite ✅, baseline robustness + shadow diagnostics ✅; compare visual encoders (ResNet18 scratch / ImageNet, DINOv2, CLIP, SigLIP; frozen vs finetuned) 🚧; feature-shift and occlusion analysis ✅ | 🚧 |
-| 3 · Method | Targeted modification derived from the analysis | ⏳ |
+| 2 · Analysis | Perturbation suite + shadow diagnostics ✅; encoders: DINOv2 frozen ✅, finetuned ✅, 2× resolution 🚧, ResNet18 from scratch / CLIP / SigLIP ⏳; replay probe + occlusion maps ✅ | 🚧 |
+| 3 · Method | Targeted modification derived from the analysis (e.g. shadow-randomized training) | ⏳ |
 
-## Results
+## Detailed results
 
 ### Step 1b · Pretrained checkpoint reproduces the reference
 
@@ -234,6 +283,10 @@ Mean over levels 1–4:
   spreads over the whole table and background, consistent with its reliance on global context. ACT's decoder
   cross-attention is diffuse for both and piles up on empty background tokens, so it is not used as an explanation.
 
+![Absolute success rate per perturbation and severity](results/robustness_curves_absolute.png)
+
+![Probe action shift vs. paired success change, one point per factor and level](results/probe_action_shift_vs_drop.png)
+
 ## Perturbation suite
 
 `src/avr/perturb` wraps the gym-aloha scene and changes **only what the camera sees**, per episode:
@@ -248,6 +301,7 @@ Mean over levels 1–4:
 | `camera_pose` | top camera shifted 2 → 10 cm, tilted 2° → 8°, zoomed ±2° → ±8° |
 | `noise`, `blur`, `jpeg` | image corruptions (σ 4 → 32, radius 0.75 → 3.5 px, quality 40 → 5) |
 | `cube_color` *(task-relevant)* | the cube itself recolored |
+| `shadows_off`, `light_direction_noshadow` *(diagnostic)* | shadows switched off; the same light rotation as `light_direction` without shadows |
 
 Guarantees, checked by `tests/test_perturb.py`: with no perturbation the env is pixel- and state-identical to
 gym-aloha; every factor at level 4 changes the image but leaves robot/cube states and rewards bit-identical;
@@ -255,7 +309,7 @@ the same episode seed always yields the same perturbation (paired comparisons ac
 The extras are visual-only (`contype=0`) static geoms hidden in geom group 3, and the scene's bounding
 statistics are pinned to the original so even shadows match.
 
-## Encoder variants (step 2c)
+## Encoder variants
 
 `plugins/lerobot_policy_act_enc` is a LeRobot policy plugin (policy type `act_enc`): ACT with the image backbone
 swapped for any encoder in [`src/avr/encoders.py`](src/avr/encoders.py), frozen or finetuned. Everything else
@@ -275,13 +329,30 @@ Each encoder returns a `(B, C, h, w)` feature map like LeRobot's ResNet, which A
 ViTs get the image at their pretraining resolution (aspect ratio kept), which keeps the token count close to the
 ResNet's 300. Train a variant with notebook 02 (`VARIANT = "dinov2_vits14_frozen"`, ...).
 
+## Limitations
+
+* **One training seed per variant.** Our baseline and the reference checkpoint, trained with the same recipe, differ by
+  6 points (paired p = 0.005), so training-seed variance is not negligible. Differences between encoders are much
+  larger (31–45 points), but the exact numbers per variant would move with other seeds.
+* **50 episodes per suite cell** only detect large effects; after Holm correction over ~49 cells few individual cells
+  are significant, especially for the low-success DINOv2 variants. The conclusions rest on consistent patterns across
+  levels and on pre-registered diagnostics, which are reported with their unadjusted p-values.
+* **Resolution confound.** The ViT variants see a 224 × 294 image, the ResNet the full 480 × 640, so "DINOv2 is worse"
+  mixes encoder and input resolution; the 2× resolution run isolates this.
+* **One task, one top-down camera, simulation only.** The shadow finding in particular is tied to this viewpoint.
+* **No data augmentation**, to keep the reference recipe; augmentation (e.g. color jitter, random lighting) would likely
+  change several of the robustness profiles and is a natural next step.
+* **Severity levels are calibrated by eye** per factor; levels are comparable within a factor, not across factors.
+* **Occlusion maps come from one seed per policy**, and ACT's decoder cross-attention turned out to be diffuse, so it is
+  not used as an explanation.
+
 ## Quickstart (Google Colab)
 
 | Notebook | What it does |
 |---|---|
 | [`01_eval_pretrained`](notebooks/01_eval_pretrained.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/01_eval_pretrained.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate the pretrained LeRobot ACT checkpoint (success rate, 95% CI, failure stages) |
-| [`02_train_act`](notebooks/02_train_act.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/02_train_act.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Train ACT from scratch, resumable across Colab sessions (checkpoints mirrored to Drive) |
-| [`03_robustness`](notebooks/03_robustness.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/03_robustness.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate a checkpoint under 11 visual perturbation factors x 4 severity levels |
+| [`02_train_act`](notebooks/02_train_act.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/02_train_act.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Train the baseline or an encoder variant, resumable across Colab sessions (checkpoints mirrored to Drive) |
+| [`03_robustness`](notebooks/03_robustness.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/03_robustness.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Evaluate a checkpoint under the perturbation suite (paired statistics, robustness curves) |
 | [`04_probe`](notebooks/04_probe.ipynb) <a href="https://colab.research.google.com/github/danielamrh/act-visual-robustness/blob/main/notebooks/04_probe.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/></a> | Why a perturbation hurts: feature / action shift under replayed episodes, occlusion sensitivity maps |
 
 Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive under
@@ -290,13 +361,12 @@ Code lives in this repo, outputs (checkpoints, eval videos) go to Google Drive u
 ## Repository layout
 
 ```
-configs/      one config per experiment
-notebooks/    Colab entry points
-results/      final tables, plots and GIFs
-src/avr/      project code: CLI wrappers, checkpoint sync, log parsing, eval statistics
-tests/        unit tests
-tools/        notebook generator, labmaze placeholder for Python 3.13
+notebooks/    Colab entry points (generated by tools/build_notebooks.py)
+results/      figures used in this README
+src/avr/      project code: perturbation suite, encoders, evaluation runner, probe, statistics, plots
 plugins/      lerobot_policy_act_enc: ACT with swappable visual encoders
+tests/        unit tests (perturbation invariants, plugin wiring, statistics)
+tools/        notebook generator, labmaze placeholder for Python 3.13
 ```
 
 ## Local development
@@ -315,6 +385,12 @@ python tools/build_notebooks.py    # notebooks are generated from this script
 - T. Z. Zhao, V. Kumar, S. Levine, C. Finn. *Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware* (ACT / ALOHA). RSS 2023.
 - [LeRobot](https://github.com/huggingface/lerobot) (Apache 2.0): ACT implementation, datasets, training and evaluation.
 - [gym-aloha](https://github.com/huggingface/gym-aloha): ALOHA simulation environments.
+- M. Oquab et al. *DINOv2: Learning Robust Visual Features without Supervision.* TMLR 2024.
+- A. Radford et al. *Learning Transferable Visual Models From Natural Language Supervision* (CLIP). ICML 2021.
+- X. Zhai et al. *Sigmoid Loss for Language Image Pre-Training* (SigLIP). ICCV 2023.
+- D. Hendrycks, T. Dietterich. *Benchmarking Neural Network Robustness to Common Corruptions and Perturbations* (ImageNet-C). ICLR 2019.
+- A. Kumar et al. *Fine-Tuning can Distort Pretrained Features and Underperform Out-of-Distribution.* ICLR 2022.
+- [timm](https://github.com/huggingface/pytorch-image-models): pretrained ViT weights.
 
 ## Acknowledgements
 

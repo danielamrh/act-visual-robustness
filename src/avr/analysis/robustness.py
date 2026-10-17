@@ -151,7 +151,14 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
         ax.xaxis.set_tick_params(labelbottom=True)
     if len(results) > 1:
         handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc="upper right", frameon=False, fontsize=9, ncols=len(results))
+        spare = axes[len(factors):]
+        if len(spare):  # an empty panel slot holds the legend, clear of the title
+            spare[0].set_visible(True)
+            spare[0].axis("off")
+            spare[0].legend(handles, labels, loc="center", frameon=False, fontsize=9)
+        else:
+            fig.legend(handles, labels, loc="lower center", frameon=False, fontsize=9, ncols=len(results),
+                       bbox_to_anchor=(0.5, -0.01))
     title = ("Success retained under visual perturbations, relative to each policy's clean rate on the same seeds"
              if relative_to else "Success rate under visual perturbations (shaded: 95% CI)")
     fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=TEXT_PRIMARY)
