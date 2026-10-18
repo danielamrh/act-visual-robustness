@@ -75,6 +75,13 @@ if "llvmpipe" in renderer.lower() or renderer.startswith("failed"):
 
 DRIVE_ROOT = "/content/drive/MyDrive/act_robustness"
 os.makedirs(DRIVE_ROOT, exist_ok=True)
+
+import shutil
+free_gb = shutil.disk_usage("/content/drive/MyDrive").free / 1e9
+print(f"Google Drive free: {free_gb:.1f} GB")
+if free_gb < 5:
+    print("⚠ Less than 5 GB free on Drive: checkpoints may silently fail to upload. Files deleted from Colab "
+          "go to the Drive trash and still count, so empty the trash (drive.google.com -> Trash).")
 """),
     md("### Quick check: can we create and render the ALOHA env?"),
     code("""
@@ -255,7 +262,8 @@ DATASET    = "lerobot/aloha_sim_transfer_cube_human"
 TASK       = "AlohaTransferCube-v0"
 STEPS      = 100_000  # as the reference checkpoint's train_config.json (model card says 80k)
 BATCH_SIZE = 8
-SAVE_FREQ  = 5_000    # adjust after the timing test: aim for a checkpoint every ~20-30 min
+SAVE_FREQ  = 5_000    # local checkpoints; adjust after the timing test: ~20-30 min apart
+DRIVE_EVERY = 20_000  # mirror a checkpoint to Drive every N steps (a multiple of SAVE_FREQ; ~0.6 GB per copy)
 SEED       = 1000
 USE_AMP    = False    # fp16 would be faster on a T4 but deviates from the reference recipe
 
@@ -295,7 +303,10 @@ if data > 0.5 * updt:
 ## 4 · Train (resumable)
 Starts a fresh run, or resumes from the newest checkpoint on Drive if one exists.
 Raising `STEPS` and re-running this cell extends a finished run from its last checkpoint.
-Runs as a background job: the cell shows a status line every 2 min, the full log goes to `train.log` on Drive. Evaluation rollouts (10 episodes) run every 20k steps.
+Runs as a background job: the cell shows a status line every 2 min, including the newest checkpoint on Drive and the
+free Drive space (`SYNC FAILING` if mirroring breaks). Checkpoints are mirrored to Drive every `DRIVE_EVERY` steps and
+at the end; a session that dies loses at most the steps since the last mirrored checkpoint. The full log is mirrored to
+`train.log` on Drive. Evaluation rollouts (10 episodes) run every 20k steps.
 """),
     code("""
 config_path = restore_from_drive(DRIVE_RUN, LOCAL_RUN)
@@ -312,11 +323,20 @@ else:
     with open(f"{DRIVE_RUN}/run_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
-# background job: only a status line every 2 min in this cell, full log in train.log on Drive
-train_log = f"{DRIVE_RUN}/train.log"
-with CheckpointSyncer(LOCAL_RUN, DRIVE_RUN, keep=2, interval=60):
-    watch(start_background(cmd, train_log), train_log, interval=120)
-print("training finished")
+# The log lives on local disk (a Drive problem must never block training) and is mirrored to Drive.
+os.makedirs("/content/logs", exist_ok=True)
+train_log, drive_log = f"/content/logs/{RUN_NAME}_train.log", f"{DRIVE_RUN}/train.log"
+if os.path.exists(drive_log) and not os.path.exists(train_log):
+    shutil.copyfile(drive_log, train_log)  # keep the history of earlier sessions
+
+# checkpoints are written locally every save_freq steps and mirrored to Drive every DRIVE_EVERY steps
+run_save_freq = json.load(open(config_path))["save_freq"] if config_path is not None else SAVE_FREQ
+assert DRIVE_EVERY % run_save_freq == 0, f"DRIVE_EVERY must be a multiple of this run's save_freq ({run_save_freq})"
+syncer = CheckpointSyncer(LOCAL_RUN, DRIVE_RUN, drive_every=DRIVE_EVERY, mirror_files={train_log: drive_log})
+print("before training:", syncer.status())
+with syncer:
+    watch(start_background(cmd, train_log), train_log, interval=120, extra_status=syncer.status)
+print("training finished:", syncer.status())
 """),
     md("""
 ## 5 · Evaluate the final checkpoint

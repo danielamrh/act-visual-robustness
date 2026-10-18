@@ -62,7 +62,7 @@ def _rss_gb(pid: int) -> float | None:
     return None
 
 
-def status_line(proc: subprocess.Popen, log_path: str | Path, t0: float) -> str:
+def status_line(proc: subprocess.Popen, log_path: str | Path, t0: float, extra=None) -> str:
     minutes = (time.monotonic() - t0) / 60
     parts = [f"[{minutes:5.1f} min]"]
     mem = _meminfo_gb()
@@ -71,14 +71,21 @@ def status_line(proc: subprocess.Popen, log_path: str | Path, t0: float) -> str:
     rss = _rss_gb(proc.pid)
     if rss is not None:
         parts.append(f"job {rss:.1f} GB")
+    if extra is not None:
+        try:
+            parts.append("| " + extra())
+        except Exception as exc:  # a status helper must never break the watch loop
+            parts.append(f"| status error: {exc!r}")
     last = tail_lines(log_path, 1)
     if last:
         parts.append("| " + last[0][-120:])
     return "  ".join(parts)
 
 
-def watch(proc: subprocess.Popen, log_path: str | Path, interval: float = 60.0, tail_on_error: int = 30) -> None:
+def watch(proc: subprocess.Popen, log_path: str | Path, interval: float = 60.0, tail_on_error: int = 30,
+          extra_status=None) -> None:
     """Block until `proc` exits, printing one status line per `interval`.
+    `extra_status()` adds a string to each line (e.g. the Drive checkpoint sync state).
     Raises with the log tail if the job fails (exit code -9 = killed, usually out of RAM)."""
     t0 = time.monotonic()
     while True:
@@ -86,8 +93,8 @@ def watch(proc: subprocess.Popen, log_path: str | Path, interval: float = 60.0, 
             proc.wait(timeout=interval)
             break
         except subprocess.TimeoutExpired:
-            print(status_line(proc, log_path, t0), flush=True)
-    print(status_line(proc, log_path, t0), flush=True)
+            print(status_line(proc, log_path, t0, extra_status), flush=True)
+    print(status_line(proc, log_path, t0, extra_status), flush=True)
     if proc.returncode != 0:
         hint = " (killed - most likely out of RAM)" if proc.returncode == -9 else ""
         raise RuntimeError(

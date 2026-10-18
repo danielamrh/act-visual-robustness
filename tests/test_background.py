@@ -51,3 +51,19 @@ def test_chunked_eval_skips_finished_and_seeds(tmp_path, monkeypatch):
     seeds = [next(a for a in c if a.startswith("--seed=")) for c in calls]
     assert seeds == ["--seed=1100", "--seed=1200"]
     assert "--eval.n_episodes=50" in calls[-1]
+
+
+def test_watch_shows_extra_status_and_survives_its_errors(tmp_path, capsys):
+    log = tmp_path / "job.log"
+    code = "import time; time.sleep(0.3); print('done')"
+    calls = []
+
+    def status():
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("drive gone")
+        return "Drive ckpt 008000"
+
+    watch(start_background([sys.executable, "-c", code], log), log, interval=0.05, extra_status=status)
+    out = capsys.readouterr().out
+    assert "status error" in out and "Drive ckpt 008000" in out
