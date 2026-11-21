@@ -297,27 +297,29 @@ print("local:", LOCAL_RUN, "\\ndrive:", DRIVE_RUN)
 (`updt_s`) or video decoding / data loading (`data_s`) is the bottleneck. The first call also downloads the dataset.
 """),
     code("""
-assert RUN_TIMING_TEST, "timing test switched off (RUN_TIMING_TEST = False); skip this cell"
-stamp = time.strftime("%Y%m%d-%H%M%S")
-timing_dir = f"{WORK}/outputs/timing_{stamp}"
-timing_log = f"{DRIVE_ROOT}/runs/_timing/timing_{COMMIT}_{stamp}.log"
+if not RUN_TIMING_TEST:  # e.g. in a Kaggle "Save & Run All" run: go straight to training
+    print("timing test skipped (RUN_TIMING_TEST = False)")
+else:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    timing_dir = f"{WORK}/outputs/timing_{stamp}"
+    timing_log = f"{DRIVE_ROOT}/runs/_timing/timing_{COMMIT}_{stamp}.log"
 
-run_streaming(
-    train_cmd(timing_dir, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
-              steps=500, batch_size=BATCH_SIZE, log_freq=50, env_eval_freq=0, save_checkpoint=False,
-              seed=SEED, use_amp=USE_AMP, extra=EXTRA),
-    log_path=timing_log,
-)
+    run_streaming(
+        train_cmd(timing_dir, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
+                  steps=500, batch_size=BATCH_SIZE, log_freq=50, env_eval_freq=0, save_checkpoint=False,
+                  seed=SEED, use_amp=USE_AMP, extra=EXTRA),
+        log_path=timing_log,
+    )
 
-recs = read_train_log(timing_log)
-sps = seconds_per_step(recs)
-updt = sum(r["updt_s"] for r in recs[1:]) / len(recs[1:])
-data = sum(r["data_s"] for r in recs[1:]) / len(recs[1:])
-print(f"\\n{sps:.3f} s/step  (max per log window: update {updt:.3f} s, data {data:.3f} s)")
-print(f"{STEPS} steps ≈ {STEPS * sps / 3600:.1f} h of training (+ in-training rollouts)")
-print(f"checkpoint every ~25 min ≈ SAVE_FREQ = {max(1000, round(25 * 60 / sps, -3)):.0f}")
-if data > 0.5 * updt:
-    print("⚠ data loading is a large share -> video decoding on 2 CPU cores is limiting")
+    recs = read_train_log(timing_log)
+    sps = seconds_per_step(recs)
+    updt = sum(r["updt_s"] for r in recs[1:]) / len(recs[1:])
+    data = sum(r["data_s"] for r in recs[1:]) / len(recs[1:])
+    print(f"\\n{sps:.3f} s/step  (max per log window: update {updt:.3f} s, data {data:.3f} s)")
+    print(f"{STEPS} steps ≈ {STEPS * sps / 3600:.1f} h of training (+ in-training rollouts)")
+    print(f"checkpoint every ~25 min ≈ SAVE_FREQ = {max(1000, round(25 * 60 / sps, -3)):.0f}")
+    if data > 0.5 * updt:
+        print("⚠ data loading is a large share -> video decoding on 2 CPU cores is limiting")
 """),
     md("""
 ## 4 · Train (resumable)
