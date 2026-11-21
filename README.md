@@ -63,7 +63,7 @@ gripper; frozen DINOv2 (bottom) depends on the whole table and background.*
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
 | 2 · Analysis | Perturbation suite + shadow diagnostics ✅; encoders: DINOv2 frozen ✅, finetuned ✅, 2× resolution 🚧, ResNet18 from scratch / CLIP / SigLIP ⏳; replay probe + occlusion maps ✅ | 🚧 |
-| 3 · Method | Targeted modification derived from the analysis (e.g. shadow-randomized training) | ⏳ |
+| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation 🚧, (B) shadow augmentation ⏳ | 🚧 |
 
 ## Detailed results
 
@@ -286,6 +286,30 @@ Mean over levels 1–4:
 ![Absolute success rate per perturbation and severity](results/robustness_curves_absolute.png)
 
 ![Probe action shift vs. paired success change, one point per factor and level](results/probe_action_shift_vs_drop.png)
+
+### Step 3a · Does standard image augmentation fix the baseline's weak spots? (pre-registered)
+
+*Written before training, from the baseline's suite results and what the augmentation covers (git history has the
+timestamp).*
+
+All runs so far used the reference recipe **without augmentation**. Run A trains the baseline again with exactly that
+recipe plus LeRobot's built-in image augmentation (`--dataset.image_transforms.enable=true`): per training frame up to
+three of brightness 0.8–1.2, contrast 0.8–1.2, saturation 0.5–1.5, hue ±0.05, sharpness 0.5–1.5 and a random affine
+transform (±5°, ±5 % translation). The baseline's weak spots (success retained relative to clean, same seeds) were:
+light direction 34–65 %, shadows off 51 %, noise 51 / 0 % (levels 3 / 4), blur 54 / 9 %, JPEG 43 % (level 4),
+camera pose 71 / 77 % (levels 3 / 4).
+
+**Prediction:**
+
+1. **Clean success stays within ±5 points** of the baseline's 77.4 % (the augmentation is mild).
+2. **Camera pose improves** (the affine transform covers small shifts and rotations): levels 3–4 retain ≥ 85 %.
+3. **Blur improves at most slightly** (sharpness 0.5 is a mild blur): level 3 a little, level 4 not.
+4. **Noise and JPEG do not improve** (no augmentation of that kind).
+5. **The shadow dependence stays:** shadows off still costs about half of the clean success, and light direction stays
+   the baseline's main weakness. Shadows are a geometric cue, and photometric jitter does not remove them from the image.
+6. Photometric factors (light intensity / color, table color) stay robust, as they already were.
+
+If 5 holds, run B (an augmentation that adds and removes shadow-like regions) targets the remaining weakness directly.
 
 ## Perturbation suite
 

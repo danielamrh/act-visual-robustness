@@ -29,7 +29,7 @@ def run_chunked_eval(
     seed: int = 1000,
     task: str = "AlohaTransferCube-v0",
     batch_size: int = 5,
-    log_dir: str = "/content/logs",
+    log_dir: str = "/tmp/avr_logs",
     interval: float = 60.0,
 ) -> list[str]:
     """Run missing chunks and return the `eval_info.json` paths of all chunks."""

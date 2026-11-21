@@ -33,14 +33,22 @@ assert sys.version_info >= (3, 12), "LeRobot 0.6.x needs Python >= 3.12"
 print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
                      capture_output=True, text=True).stdout or "No GPU - switch the runtime to T4!")
 """),
-    md("## 1 · Drive + repo + install\nCode comes from GitHub (always fresh via `git pull`), outputs go to Google Drive."),
+    md("""
+## 1 · Storage + repo + install
+Code comes from GitHub (always fresh via `git pull`). Outputs go to Google Drive on Colab, and to
+`/kaggle/working` on Kaggle, which Kaggle keeps as the notebook version's output after a "Save & Run All" run.
+"""),
     code("""
 import os
-from google.colab import drive
-drive.mount("/content/drive")
+ON_KAGGLE = os.path.exists("/kaggle/working")
+WORK = "/tmp/avr" if ON_KAGGLE else "/content"  # scratch: repo, local checkpoints, logs (not kept)
+os.makedirs(WORK, exist_ok=True)
+if not ON_KAGGLE:
+    from google.colab import drive
+    drive.mount("/content/drive")
 
 REPO = "act-visual-robustness"
-REPO_DIR = f"/content/{REPO}"
+REPO_DIR = f"{WORK}/{REPO}"
 if not os.path.exists(REPO_DIR):
     !git clone -q https://github.com/danielamrh/{REPO}.git {REPO_DIR}
 else:
@@ -73,13 +81,14 @@ print("OpenGL renderer:", renderer)
 if "llvmpipe" in renderer.lower() or renderer.startswith("failed"):
     print("⚠ MuJoCo is NOT rendering on the GPU - rollouts will be extremely slow")
 
-DRIVE_ROOT = "/content/drive/MyDrive/act_robustness"
+# persistent storage; the name DRIVE_ROOT is kept for both platforms
+DRIVE_ROOT = "/kaggle/working/act_robustness" if ON_KAGGLE else "/content/drive/MyDrive/act_robustness"
 os.makedirs(DRIVE_ROOT, exist_ok=True)
 
 import shutil
-free_gb = shutil.disk_usage("/content/drive/MyDrive").free / 1e9
-print(f"Google Drive free: {free_gb:.1f} GB")
-if free_gb < 5:
+free_gb = shutil.disk_usage(DRIVE_ROOT).free / 1e9
+print(f"{'Kaggle output' if ON_KAGGLE else 'Google Drive'} free: {free_gb:.1f} GB")
+if free_gb < 5 and not ON_KAGGLE:
     print("⚠ Less than 5 GB free on Drive: checkpoints may silently fail to upload. Files deleted from Colab "
           "go to the Drive trash and still count, so empty the trash (drive.google.com -> Trash).")
 """),
@@ -248,16 +257,22 @@ from avr.train_log import read_train_log, seconds_per_step
 # What to train: "baseline" = plain LeRobot ACT (ImageNet ResNet18, finetuned), or an encoder variant
 # "<encoder>_<frozen|ft>" via the act_enc plugin, e.g. "dinov2_vits14_frozen", "dinov2_vits14_ft",
 # "resnet18_scratch_ft", "clip_vitb16_frozen", "siglip_vitb16_frozen" (encoders: src/avr/encoders.py)
+# "baseline_aug" = the baseline recipe with LeRobot's image augmentation switched on (step 3)
 VARIANT    = "baseline"
 
+from avr.registry import AUG_RUN_NAME, BASE_RUN_NAME
+EXTRA = []  # extra lerobot-train flags
 if VARIANT == "baseline":
-    RUN_NAME, POLICY_TYPE, POLICY_ARGS = "act_transfer_cube_human_resnet18_s1000", "act", {}
+    RUN_NAME, POLICY_TYPE, POLICY_ARGS = BASE_RUN_NAME, "act", {}
+elif VARIANT == "baseline_aug":
+    RUN_NAME, POLICY_TYPE, POLICY_ARGS = AUG_RUN_NAME, "act", {}
+    EXTRA = ["--dataset.image_transforms.enable=true"]  # brightness/contrast/saturation/hue/sharpness/affine
 else:
     encoder, mode = VARIANT.rsplit("_", 1)
     assert mode in ("frozen", "ft"), VARIANT
     RUN_NAME = f"actenc_transfer_cube_human_{VARIANT}_s1000"
     POLICY_TYPE, POLICY_ARGS = "act_enc", {"encoder": encoder, "freeze_encoder": mode == "frozen"}
-print("run:", RUN_NAME, "| policy:", POLICY_TYPE, POLICY_ARGS)
+print("run:", RUN_NAME, "| policy:", POLICY_TYPE, POLICY_ARGS, EXTRA)
 DATASET    = "lerobot/aloha_sim_transfer_cube_human"
 TASK       = "AlohaTransferCube-v0"
 STEPS      = 100_000  # as the reference checkpoint's train_config.json (model card says 80k)
@@ -267,8 +282,12 @@ DRIVE_EVERY = 20_000  # mirror a checkpoint to Drive every N steps (a multiple o
 SEED       = 1000
 USE_AMP    = False    # fp16 would be faster on a T4 but deviates from the reference recipe
 
-LOCAL_RUN = f"/content/outputs/{RUN_NAME}"
+LOCAL_RUN = f"{WORK}/outputs/{RUN_NAME}"
 DRIVE_RUN = f"{DRIVE_ROOT}/runs/{RUN_NAME}"
+# Kaggle: to continue a run, attach the previous version's output as input and point RESUME_FROM at its run
+# folder, e.g. "/kaggle/input/<notebook>/act_robustness/runs/<RUN_NAME>". None = resume from DRIVE_RUN.
+RESUME_FROM = None
+RUN_TIMING_TEST = not ON_KAGGLE  # a Kaggle "Save & Run All" run should go straight to training
 os.makedirs(DRIVE_RUN, exist_ok=True)
 print("local:", LOCAL_RUN, "\\ndrive:", DRIVE_RUN)
 """),
@@ -278,14 +297,15 @@ print("local:", LOCAL_RUN, "\\ndrive:", DRIVE_RUN)
 (`updt_s`) or video decoding / data loading (`data_s`) is the bottleneck. The first call also downloads the dataset.
 """),
     code("""
+assert RUN_TIMING_TEST, "timing test switched off (RUN_TIMING_TEST = False); skip this cell"
 stamp = time.strftime("%Y%m%d-%H%M%S")
-timing_dir = f"/content/outputs/timing_{stamp}"
+timing_dir = f"{WORK}/outputs/timing_{stamp}"
 timing_log = f"{DRIVE_ROOT}/runs/_timing/timing_{COMMIT}_{stamp}.log"
 
 run_streaming(
     train_cmd(timing_dir, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
               steps=500, batch_size=BATCH_SIZE, log_freq=50, env_eval_freq=0, save_checkpoint=False,
-              seed=SEED, use_amp=USE_AMP),
+              seed=SEED, use_amp=USE_AMP, extra=EXTRA),
     log_path=timing_log,
 )
 
@@ -309,23 +329,24 @@ at the end; a session that dies loses at most the steps since the last mirrored 
 `train.log` on Drive. Evaluation rollouts (10 episodes) run every 20k steps.
 """),
     code("""
-config_path = restore_from_drive(DRIVE_RUN, LOCAL_RUN)
+config_path = restore_from_drive(RESUME_FROM or DRIVE_RUN, LOCAL_RUN)
 if config_path is not None:
     print("resuming from", os.path.realpath(config_path.parent.parent))
     cmd = resume_cmd(str(config_path), steps=STEPS)  # STEPS > stored total extends a finished run
 else:
     assert not os.path.exists(LOCAL_RUN), f"{LOCAL_RUN} exists without checkpoints; delete it or change RUN_NAME"
     cmd = train_cmd(LOCAL_RUN, policy_type=POLICY_TYPE, policy_args=POLICY_ARGS, dataset=DATASET, task=TASK,
-                    steps=STEPS, batch_size=BATCH_SIZE, save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP)
+                    steps=STEPS, batch_size=BATCH_SIZE, save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP,
+                    extra=EXTRA)
     meta = dict(run=RUN_NAME, variant=VARIANT, commit=COMMIT, started=time.strftime("%Y-%m-%d %H:%M:%S"),
                 dataset=DATASET, task=TASK, steps=STEPS, batch_size=BATCH_SIZE,
-                save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP, cmd=cmd)
+                save_freq=SAVE_FREQ, seed=SEED, use_amp=USE_AMP, extra=EXTRA, cmd=cmd)
     with open(f"{DRIVE_RUN}/run_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
 
 # The log lives on local disk (a Drive problem must never block training) and is mirrored to Drive.
-os.makedirs("/content/logs", exist_ok=True)
-train_log, drive_log = f"/content/logs/{RUN_NAME}_train.log", f"{DRIVE_RUN}/train.log"
+os.makedirs(f"{WORK}/logs", exist_ok=True)
+train_log, drive_log = f"{WORK}/logs/{RUN_NAME}_train.log", f"{DRIVE_RUN}/train.log"
 if os.path.exists(drive_log) and not os.path.exists(train_log):
     shutil.copyfile(drive_log, train_log)  # keep the history of earlier sessions
 
@@ -375,8 +396,11 @@ def successes(root):
 ours = successes(eval_root)
 references = {"pretrained": f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"}
 if VARIANT != "baseline":  # encoder variants: compare with our own baseline, same recipe
-    references["baseline"] = f"{DRIVE_ROOT}/runs/act_transfer_cube_human_resnet18_s1000/eval/step100000_n500_seed1000"
+    references["baseline"] = f"{DRIVE_ROOT}/runs/{BASE_RUN_NAME}/eval/step100000_n500_seed1000"
 for name, root in references.items():
+    if not chunk_info_paths(root):  # e.g. on Kaggle, where the earlier evaluations are not available
+        print(f"{name}: no evaluation at {root}, skipped")
+        continue
     ref = successes(root)
     t = mcnemar(ref, ours)
     print(f"{name}: {sum(ref)}/{len(ref)}   {VARIANT} (step {step}): {sum(ours)}/{len(ours)}   "
@@ -482,7 +506,7 @@ def run_suite(policy, out, factors, levels=(1, 2, 3, 4), episodes=50, seed=1000,
     cmd = [sys.executable, "-m", "avr.eval.robustness", "--policy", policy, "--out", out,
            "--factors", *factors, "--levels", *map(str, levels),
            "--episodes", str(episodes), "--seed", str(seed)]
-    log = f"/content/logs/{os.path.basename(out)}_{tag}.log"
+    log = f"{WORK}/logs/{os.path.basename(out)}_{tag}.log"
     watch(start_background(cmd, log), log, interval=60)
 
 run_suite(POLICY_DIR, ROB_ROOT, ["clean"], episodes=100, tag="clean")
@@ -645,7 +669,7 @@ for label, paths in POLICIES.items():
     print(f"\\n=== {label}")
     cmd = [sys.executable, "-m", "avr.analysis.features", "--policy", paths.checkpoint,
            "--out", paths.probe, "--seeds", str(N_SEEDS), "--seed", "1000"]
-    log = f"/content/logs/probe_{os.path.basename(paths.probe)}.log"
+    log = f"{WORK}/logs/probe_{os.path.basename(paths.probe)}.log"
     watch(start_background(cmd, log), log, interval=60)
 """),
     md("""

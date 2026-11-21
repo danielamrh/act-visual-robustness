@@ -11,6 +11,7 @@ import os
 from typing import NamedTuple
 
 BASE_RUN_NAME = "act_transfer_cube_human_resnet18_s1000"
+AUG_RUN_NAME = "act_transfer_cube_human_resnet18_aug_s1000"  # baseline recipe + LeRobot image augmentation
 VARIANT_PREFIX, VARIANT_SUFFIX = "actenc_transfer_cube_human_", "_s1000"
 FINAL_STEP = "100000"
 # fixed order (and thus fixed figure colors) for the planned variants; others are appended
@@ -53,6 +54,13 @@ def policy_registry(drive_root: str) -> dict[str, PolicyPaths]:
             f"{run}/eval/step{FINAL_STEP}_n500_seed1000",
             f"{probe}/ours_{variant}_s1000_100k",
         )
+    aug = f"{runs}/{AUG_RUN_NAME}"
+    registry["ours, ResNet18 ImageNet + augmentation (100k)"] = PolicyPaths(
+        f"{aug}/checkpoints/{FINAL_STEP}/pretrained_model",
+        f"{rob}/ours_resnet18_aug_s1000_100k",
+        f"{aug}/eval/step{FINAL_STEP}_n500_seed1000",
+        f"{probe}/ours_resnet18_aug_s1000_100k",
+    )
     return registry
 
 
