@@ -367,6 +367,11 @@ Three predictions held, one partly, two failed, and the failures are the interes
 * **The probe misses the distractor weakness:** distractors barely change the actions along the clean trajectory, yet
   cost half of the success in closed loop. The replay probe only sees states of the clean run; distractors seem to
   matter once the trajectory has drifted, or only in short moments such as the grasp.
+* **Where it looks** (occlusion sensitivity, same seed and step as the baseline figure above): the baseline's
+  sensitivity is concentrated on the cube and the approaching gripper; the augmented policy's is weaker and spread over
+  the middle of the table between the grippers, where the shadows fall. One seed, so only a qualitative hint.
+
+![Occlusion sensitivity of the augmented baseline](results/occlusion_resnet18_aug.png)
 
 ### Step 3b · Shadow augmentation: remove or move the shadows in the training images (pre-registered)
 
