@@ -27,11 +27,15 @@ def badge(name):
 SETUP = [
     md("## 0 · Environment check"),
     code("""
-import sys, subprocess
+import sys, subprocess, shutil
 print(sys.version)
 assert sys.version_info >= (3, 12), "LeRobot 0.6.x needs Python >= 3.12"
-print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
-                     capture_output=True, text=True).stdout or "No GPU - switch the runtime to T4!")
+if shutil.which("nvidia-smi"):
+    print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                         capture_output=True, text=True).stdout)
+else:
+    print("⚠ No GPU in this runtime. Colab: Runtime -> Change runtime type -> T4 GPU. "
+          "Kaggle: Settings -> Accelerator -> GPU T4. If none is offered, the GPU quota may be used up.")
 """),
     md("""
 ## 1 · Storage + repo + install
