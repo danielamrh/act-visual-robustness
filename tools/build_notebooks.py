@@ -261,16 +261,22 @@ from avr.train_log import read_train_log, seconds_per_step
 # What to train: "baseline" = plain LeRobot ACT (ImageNet ResNet18, finetuned), or an encoder variant
 # "<encoder>_<frozen|ft>" via the act_enc plugin, e.g. "dinov2_vits14_frozen", "dinov2_vits14_ft",
 # "resnet18_scratch_ft", "clip_vitb16_frozen", "siglip_vitb16_frozen" (encoders: src/avr/encoders.py)
-# "baseline_aug" = the baseline recipe with LeRobot's image augmentation switched on (step 3)
+# "baseline_aug" = the baseline recipe with LeRobot's image augmentation switched on (step 3, run A)
+# "baseline_shadowaug" = run A + removing / moving the table shadows (step 3, run B; src/avr/shadow_aug.py)
 VARIANT    = "baseline"
 
-from avr.registry import AUG_RUN_NAME, BASE_RUN_NAME
+from avr.registry import AUG_RUN_NAME, BASE_RUN_NAME, SHADOW_AUG_RUN_NAME
 EXTRA = []  # extra lerobot-train flags
 if VARIANT == "baseline":
     RUN_NAME, POLICY_TYPE, POLICY_ARGS = BASE_RUN_NAME, "act", {}
 elif VARIANT == "baseline_aug":
     RUN_NAME, POLICY_TYPE, POLICY_ARGS = AUG_RUN_NAME, "act", {}
     EXTRA = ["--dataset.image_transforms.enable=true"]  # brightness/contrast/saturation/hue/sharpness/affine
+elif VARIANT == "baseline_shadowaug":
+    from avr.shadow_aug import lerobot_flags
+    RUN_NAME, POLICY_TYPE, POLICY_ARGS = SHADOW_AUG_RUN_NAME, "act", {}
+    EXTRA = lerobot_flags()  # run A's transforms + ShadowEdit (edits half the frames: remove or move shadows)
+    import lerobot_policy_act_enc  # registers ShadowEdit; fails here, not after the setup, if the plugin is missing
 else:
     encoder, mode = VARIANT.rsplit("_", 1)
     assert mode in ("frozen", "ft"), VARIANT
@@ -410,6 +416,8 @@ ours = successes(eval_root)
 references = {"pretrained": f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"}
 if VARIANT != "baseline":  # encoder variants: compare with our own baseline, same recipe
     references["baseline"] = f"{DRIVE_ROOT}/runs/{BASE_RUN_NAME}/eval/step100000_n500_seed1000"
+if VARIANT == "baseline_shadowaug":  # run B vs. run A: the effect of the shadow edit alone
+    references["baseline_aug"] = f"{DRIVE_ROOT}/runs/{AUG_RUN_NAME}/eval/step100000_n500_seed1000"
 for name, root in references.items():
     if not chunk_info_paths(root):  # e.g. on Kaggle, where the earlier evaluations are not available
         print(f"{name}: no evaluation at {root}, skipped")

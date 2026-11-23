@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 BASE_RUN_NAME = "act_transfer_cube_human_resnet18_s1000"
 AUG_RUN_NAME = "act_transfer_cube_human_resnet18_aug_s1000"  # baseline recipe + LeRobot image augmentation
+SHADOW_AUG_RUN_NAME = "act_transfer_cube_human_resnet18_shadowaug_s1000"  # run A + shadow removal / shift
 VARIANT_PREFIX, VARIANT_SUFFIX = "actenc_transfer_cube_human_", "_s1000"
 FINAL_STEP = "100000"
 # fixed order (and thus fixed figure colors) for the planned variants; others are appended
@@ -61,6 +62,13 @@ def policy_registry(drive_root: str) -> dict[str, PolicyPaths]:
         f"{aug}/eval/step{FINAL_STEP}_n500_seed1000",
         f"{probe}/ours_resnet18_aug_s1000_100k",
     )
+    shadow = f"{runs}/{SHADOW_AUG_RUN_NAME}"
+    registry["ours, ResNet18 ImageNet + augmentation + shadow edit (100k)"] = PolicyPaths(
+        f"{shadow}/checkpoints/{FINAL_STEP}/pretrained_model",
+        f"{rob}/ours_resnet18_shadowaug_s1000_100k",
+        f"{shadow}/eval/step{FINAL_STEP}_n500_seed1000",
+        f"{probe}/ours_resnet18_shadowaug_s1000_100k",
+    )
     return registry
 
 
@@ -78,6 +86,7 @@ FIXED_COLORS = {
     "ours, dinov2_vits14_ft (100k)": "#eda100",                  # yellow
     "ours, ResNet18 ImageNet + augmentation (100k)": "#4a3aa7",  # violet
     "ours, dinov2_vits14_hr_frozen (100k)": "#e87ba4",           # magenta
+    "ours, ResNet18 ImageNet + augmentation + shadow edit (100k)": "#008300",  # green
 }
 
 
