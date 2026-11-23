@@ -69,9 +69,25 @@ def trained(registry: dict[str, PolicyPaths]) -> dict[str, PolicyPaths]:
     return {k: v for k, v in registry.items() if os.path.exists(f"{v.checkpoint}/config.json")}
 
 
+# Fixed colors (validated categorical palette, light surface) for the policies we report, chosen so that the
+# pairs compared most (baseline vs. its augmented version) are far apart; anything else gets the remaining slots.
+FIXED_COLORS = {
+    "pretrained ACT (LeRobot Hub)": "#2a78d6",                   # blue
+    "ours, ResNet18 ImageNet (100k)": "#eb6834",                 # orange
+    "ours, dinov2_vits14_frozen (100k)": "#1baf7a",              # aqua
+    "ours, dinov2_vits14_ft (100k)": "#eda100",                  # yellow
+    "ours, ResNet18 ImageNet + augmentation (100k)": "#4a3aa7",  # violet
+    "ours, dinov2_vits14_hr_frozen (100k)": "#e87ba4",           # magenta
+}
+
+
 def policy_colors(registry: dict) -> dict[str, str]:
-    """A fixed categorical color per policy (registry order), used by every figure so a
-    policy keeps its color no matter which subset a plot shows."""
+    """A fixed categorical color per policy, used by every figure so a policy keeps its color no
+    matter which subset a plot shows (or which empty run folders exist on Drive)."""
     from avr.analysis.robustness import SERIES_COLORS
 
-    return {label: SERIES_COLORS[i % len(SERIES_COLORS)] for i, label in enumerate(registry)}
+    spare = [c for c in SERIES_COLORS if c not in FIXED_COLORS.values()]
+    others = [label for label in registry if label not in FIXED_COLORS]
+    colors = {label: FIXED_COLORS[label] for label in registry if label in FIXED_COLORS}
+    colors.update({label: spare[i % len(spare)] for i, label in enumerate(others)})
+    return colors

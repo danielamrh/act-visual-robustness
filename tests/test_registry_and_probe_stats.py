@@ -69,3 +69,13 @@ def test_variant_colors_do_not_depend_on_other_folders(tmp_path):
     after = policy_colors(policy_registry(str(tmp_path)))
     label = "ours, dinov2_vits14_frozen (100k)"
     assert before[label] == after[label]
+
+
+def test_compared_policies_get_fixed_distinct_colors(tmp_path):
+    from avr.registry import policy_colors
+
+    (tmp_path / "runs" / "actenc_transfer_cube_human_clip_vitb16_frozen_s1000").mkdir(parents=True)
+    colors = policy_colors(policy_registry(str(tmp_path)))
+    base, aug = colors["ours, ResNet18 ImageNet (100k)"], colors["ours, ResNet18 ImageNet + augmentation (100k)"]
+    assert (base, aug) == ("#eb6834", "#4a3aa7")
+    assert len(set(colors.values())) == len(colors)

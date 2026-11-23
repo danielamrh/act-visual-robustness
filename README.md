@@ -22,6 +22,9 @@ with purely visual perturbations, and works out **what each policy actually reli
 4. **A 10-minute probe predicts a new policy's weak spots.** Replaying clean actions under each perturbation (states stay
    identical, only pixels change) and measuring the shift of the predicted action chunk ranks the closed-loop damage.
    Pre-registered on finetuned DINOv2 before running its suite: Spearman ρ = −0.72 (p = 7e-5).
+5. **Standard augmentation is not a free fix.** LeRobot's image augmentation (color jitter, sharpness, small affine)
+   made the baseline robust to blur and camera shifts at no significant clean cost, but its shadow dependence got much
+   worse (shadows off: 51 % → 9 % of clean success retained) and distractors became a new weakness.
 
 ![Success retained relative to each policy's clean rate (same seeds), per perturbation and severity](results/robustness_curves_relative.png)
 
@@ -31,7 +34,8 @@ with purely visual perturbations, and works out **what each policy actually reli
 | **Baseline:** ACT, ImageNet ResNet18, finetuned | 77.4 % | 1.2 % | shadows / light direction, strong noise, blur, JPEG | color, background, distractors |
 | ACT, DINOv2 ViT-S/14, frozen | 45.8 % | 20.2 % | distractors, background, camera pose, shadows | blur, color, lighting |
 | ACT, DINOv2 ViT-S/14, finetuned | 32.8 % | 35.2 % | brightness, light / table color, camera pose | noise, distractors, shadows |
-| ACT, DINOv2 ViT-S/14 at 2× resolution, frozen | *training* | | | |
+| ACT, ResNet18, finetuned **+ image augmentation** | 73.4 % | 0.4 % | shadows / light direction (stronger), noise, JPEG, distractors | blur, camera pose, color, background |
+| ACT, DINOv2 ViT-S/14 at 2× resolution, frozen | *paused at 16k steps* | | | |
 
 <table>
 <tr>
@@ -63,7 +67,7 @@ gripper; frozen DINOv2 (bottom) depends on the whole table and background.*
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
 | 2 · Analysis | Perturbation suite + shadow diagnostics ✅; encoders: DINOv2 frozen ✅, finetuned ✅, 2× resolution 🚧, ResNet18 from scratch / CLIP / SigLIP ⏳; replay probe + occlusion maps ✅ | 🚧 |
-| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation 🚧, (B) shadow augmentation ⏳ | 🚧 |
+| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation ✅, (B) shadow augmentation ⏳ | 🚧 |
 
 ## Detailed results
 
@@ -310,6 +314,36 @@ camera pose 71 / 77 % (levels 3 / 4).
 6. Photometric factors (light intensity / color, table color) stay robust, as they already were.
 
 If 5 holds, run B (an augmentation that adds and removes shadow-like regions) targets the remaining weakness directly.
+
+#### Outcome: augmentation fixed blur, and made the policy *more* dependent on shadows
+
+Trained on Kaggle (T4, 0.310 s/step, training + evaluation 9.7 h in one background run). Clean: **73.4 %**
+(95 % CI 69.4–77.1 %) vs. 77.4 % for the baseline; paired on the same 500 seeds the baseline alone succeeds in 82
+episodes, the augmented policy alone in 62 (p = 0.11). Suite, success retained relative to clean on the same seeds
+(both policies: 70 % clean on seeds 1000–1049):
+
+| Perturbation | Baseline | + augmentation | Predicted | |
+|---|---|---|---|---|
+| clean success | 77.4 % | 73.4 % (p = 0.11) | within ±5 points | ✅ |
+| camera pose, levels 3 / 4 | 71 / 77 % | 83 / 86 % | ≥ 85 % | ◐ improved, level 3 just below |
+| blur, levels 3 / 4 | 54 / **9 %** | 103 / **83 %** | at most slight, level 4 not | ❌ large improvement |
+| noise, levels 3 / 4 | 51 / 0 % | 40 / 9 % | no improvement | ✅ |
+| JPEG, levels 3 / 4 | 89 / 43 % | 63 / 34 % | no improvement | ✅ |
+| **shadows off** | 51 % | **9 %** (3 / 50, p_Holm = 2e-8) | still costs about half | ❌ much worse |
+| light direction, levels 1–4 | 65 / 40 / 34 / 54 % | **43 / 23 / 14 / 9 %** | stays the main weakness | ✅ but much worse |
+| light intensity / color, table color, background, cube color | ≈ 100 % | ≈ 100 % | stay robust | ✅ |
+| distractors, levels 3 / 4 | 91 / 97 % | 66 / **49 %** (level 4: p_Holm = 0.002) | (not predicted) | new weakness |
+
+Three predictions held, one partly, two failed, and the failures are the interesting part:
+
+* **Blur robustness came from the sharpness jitter**, which we had judged too mild.
+* **The shadow dependence got much stronger, not just stayed:** with shadows switched off the augmented policy keeps 9 %
+  of its clean success (baseline 51 %), and without shadows rotating the light no longer matters (success 6 / 6 / 6 / 4 % at levels 1–4).
+  Our reading: brightness / contrast / color jitter removes photometric shortcuts, while shadows are high-contrast
+  shapes that survive every one of these transforms, so the policy leans on them even more. The same may explain the new
+  sensitivity to distractors, which are also shapes. **Standard augmentation trades one kind of robustness for a
+  stronger dependence on the one cue it cannot touch**, which is exactly the motivation for run B: augment the shadows
+  themselves.
 
 ## Perturbation suite
 
