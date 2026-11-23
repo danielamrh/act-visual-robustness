@@ -372,6 +372,13 @@ from avr.eval.stats import merge_eval_infos, summarize_eval, format_summary
 if not os.path.exists(f"{LOCAL_RUN}/checkpoints/last"):
     restore_from_drive(DRIVE_RUN, LOCAL_RUN)
 policy_dir = os.path.realpath(f"{LOCAL_RUN}/checkpoints/last/pretrained_model")
+if not os.path.exists(f"{policy_dir}/config.json"):
+    found = os.listdir(DRIVE_RUN) if os.path.isdir(DRIVE_RUN) else "folder missing"
+    raise FileNotFoundError(
+        f"No checkpoint found: expected {DRIVE_RUN}/checkpoints/<step>/pretrained_model/config.json "
+        f"(contents of the run folder: {found}). If you just uploaded it, restart the runtime so Drive is "
+        "mounted fresh, then rerun sections 0-2."
+    )
 step = os.path.basename(os.path.dirname(policy_dir))
 print("evaluating step", step)
 
