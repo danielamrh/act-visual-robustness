@@ -350,9 +350,13 @@ Three predictions held, one partly, two failed, and the failures are the interes
 *Written before training (git history has the timestamp).*
 
 **Method.** Run B is run A plus one transform, `ShadowEdit` (`src/avr/shadow_aug.py`), applied to half of the training
-frames after the color jitter: it either **removes** the shadows on the table or **moves** them by up to ±8 % of the image
-size (a cheap stand-in for a different light direction), at a random strength of 60–100 %. Everything else, including
-how run A's transforms are sampled, is unchanged, so the paired comparison A vs. B measures the shadow edit alone.
+frames after the color jitter, at a random strength of 60–100 %. Half of the edited frames get the shadows on the table
+**removed**, the other half get them **moved and reshaped**: shifted by up to ±8 % of the image size and stretched
+along one random direction per image (length ×0.7–1.5, width ×0.85–1.15, each shadow around its own center), since a
+different light position both moves and reshapes the shadows. This is a cheap image-space stand-in, not a physical
+re-rendering, and the ranges were set as plausible changes without looking at the suite's light-direction levels
+(that would tune the augmentation to the test). Everything else, including how run A's transforms are sampled, is
+unchanged, so the paired comparison A vs. B measures the shadow edit alone.
 
 The edit works on the recorded images, without access to the simulator, using what the scene makes simple: the table
 is unsaturated grey (in two lit regions of different brightness), and the single shadow-casting light darkens it by a
@@ -383,8 +387,9 @@ distractors 66 / 49 % (levels 3 / 4).
    the frames keep them.
 2. **Shadows off improves strongly:** B retains ≥ 50 % (A: 9 %, baseline: 51 %), and the difference to A is significant
    after Holm correction. This is the main prediction; the transform targets exactly this.
-3. **Light direction improves at every level**, levels 3–4 retain ≥ 40 % (A: 14 / 9 %). Moved shadows resemble a rotated
-   light, but the edit is only a translation, so we expect the gain to be smaller than for shadows off.
+3. **Light direction improves at every level**, levels 3–4 retain ≥ 40 % (A: 14 / 9 %). Moved and stretched shadows
+   resemble a rotated light only roughly (no occlusion by other objects, no real perspective), so we expect the gain to
+   be smaller than for shadows off.
 4. **The rotations without shadows improve as much as shadows off** (they measure the same dependence).
 5. **Run A's gains are kept:** blur level 4 and camera pose levels 3–4 retain ≥ 75 %.
 6. Distractors: no prediction; we report the result.
@@ -446,8 +451,9 @@ ResNet's 300. Train a variant with notebook 02 (`VARIANT = "dinov2_vits14_frozen
 * **Resolution confound.** The ViT variants see a 224 × 294 image, the ResNet the full 480 × 640, so "DINOv2 is worse"
   mixes encoder and input resolution; the 2× resolution run isolates this.
 * **One task, one top-down camera, simulation only.** The shadow finding in particular is tied to this viewpoint.
-* **No data augmentation**, to keep the reference recipe; augmentation (e.g. color jitter, random lighting) would likely
-  change several of the robustness profiles and is a natural next step.
+* **Augmentation only in step 3**: steps 1–2 keep the reference recipe without augmentation. Run B changes several
+  things at once (removing, moving and stretching shadows), so A vs. B shows the effect of the shadow edit as a whole;
+  which part contributes how much would need further runs.
 * **Severity levels are calibrated by eye** per factor; levels are comparable within a factor, not across factors.
 * **Occlusion maps come from one seed per policy**, and ACT's decoder cross-attention turned out to be diffuse, so it is
   not used as an explanation.

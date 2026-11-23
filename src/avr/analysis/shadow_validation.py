@@ -115,14 +115,16 @@ def example_figure(examples, path):
 
     from avr.analysis.robustness import SURFACE, TEXT_PRIMARY, TEXT_SECONDARY
 
-    cols = ["sim, clean", "sim, true shadows off", "sim, our removal", "demo frame", "demo, removal", "demo, shifted"]
+    cols = ["sim, clean", "sim, true shadows off", "sim, our removal", "demo frame", "demo, removal",
+            "demo, moved + stretched"]
     fig, axes = plt.subplots(len(examples), len(cols), figsize=(2.6 * len(cols), 2.1 * len(examples)), squeeze=False)
     fig.patch.set_facecolor(SURFACE)
     for r, (clean, no_shadow, demo) in enumerate(examples):
         d_sim, d_demo = detect_shadows(clean), detect_shadows(demo)
         h, w = demo.shape[-2:]
         imgs = [clean, no_shadow, remove_shadows(clean, d_sim), demo, remove_shadows(demo, d_demo),
-                shift_shadows(demo, d_demo, round(0.06 * h), round(-0.06 * w))]  # fmt: skip
+                shift_shadows(demo, d_demo, round(0.04 * h), round(-0.04 * w), angle=0.5 + r, length=1.4,
+                              width=0.9)]  # fmt: skip
         for c, img in enumerate(imgs):
             ax = axes[r, c]
             ax.imshow(img.permute(1, 2, 0).clamp(0, 1).numpy())

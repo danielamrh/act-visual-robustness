@@ -5,7 +5,9 @@ success) and that standard image augmentation makes this *worse*: color / bright
 shadows intact. This transform edits the shadows themselves, on the recorded training images:
 
   remove: shadow pixels on the table are divided by the shadow factor (like switching shadows off)
-  shift:  shadows are removed and re-drawn at a random offset (like a different light direction)
+  move:   shadows are removed and re-drawn shifted and stretched: one random direction per image, along which every
+          shadow gets longer or shorter (and a bit wider or narrower) around its own center, as a different light
+          position would do; a cheap image-space stand-in for changing the light, not a physical re-rendering
 
 Detection exploits the simple scene: the table is a uniform, unsaturated grey. Its lit level L is estimated per
 image (robust to the brightness / contrast jitter applied before), shadows are grey pixels darker than 0.93 L inside
@@ -17,6 +19,8 @@ Registered as LeRobot image transform "ShadowEdit" by the act_enc plugin, so it 
 """
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 import torch
@@ -146,13 +150,52 @@ def remove_shadows(img: torch.Tensor, det: dict, strength: float = 1.0) -> torch
     return (img * gain).clamp(0, 1)
 
 
-def shift_shadows(img: torch.Tensor, det: dict, dy: int, dx: int, strength: float = 1.0) -> torch.Tensor:
-    """Remove the shadows, then cast them again at the mask moved by (dy, dx), on lit table pixels only
-    (never on the arms, the cube or the background)."""
+def warp_mask(mask: torch.Tensor, dy: float, dx: float, angle: float = 0.0, length: float = 1.0,
+              width: float = 1.0) -> torch.Tensor:
+    """Each connected shadow scaled around its own center (by `length` along `angle`, by `width` across it), then
+    shifted by (dy, dx). One direction for all shadows in the image, as with a single light."""
+    from scipy import ndimage
+
+    labels, n = ndimage.label(mask.numpy())
+    if n == 0:
+        return mask
+    h, w = mask.shape
+    c, s = math.cos(angle), math.sin(angle)
+    # forward map p' = center + t + M (p - center) on (x, y), M = R diag(length, width) R^T, axis = (cos, sin)
+    m = np.array([[c * c * length + s * s * width, c * s * (length - width)],
+                  [c * s * (length - width), s * s * length + c * c * width]])
+    m_inv = np.linalg.inv(m)
+    out = np.zeros((h, w), dtype=bool)
+    for k, sl in enumerate(ndimage.find_objects(labels), start=1):
+        ys, xs = np.nonzero(labels[sl] == k)
+        cy, cx = ys.mean() + sl[0].start, xs.mean() + sl[1].start
+        # target box: forward-mapped corners of the component's box
+        corners = np.array([[sl[1].start, sl[0].start], [sl[1].stop, sl[0].start],
+                            [sl[1].start, sl[0].stop], [sl[1].stop, sl[0].stop]], dtype=float) - (cx, cy)
+        tgt = corners @ m.T + (cx + dx, cy + dy)
+        x0, y0 = np.floor(tgt.min(0)).astype(int) - 1
+        x1, y1 = np.ceil(tgt.max(0)).astype(int) + 2
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+        if x0 >= x1 or y0 >= y1:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        src = np.stack([xx - cx - dx, yy - cy - dy], -1) @ m_inv.T + (cx, cy)  # nearest source pixel
+        sx, sy = np.rint(src[..., 0]).astype(int), np.rint(src[..., 1]).astype(int)
+        ok = (sx >= 0) & (sx < w) & (sy >= 0) & (sy < h)
+        hit = np.zeros_like(ok)
+        hit[ok] = labels[sy[ok], sx[ok]] == k
+        out[y0:y1, x0:x1] |= hit
+    return torch.from_numpy(out)
+
+
+def shift_shadows(img: torch.Tensor, det: dict, dy: int, dx: int, strength: float = 1.0, angle: float = 0.0,
+                  length: float = 1.0, width: float = 1.0) -> torch.Tensor:
+    """Remove the shadows, then cast them again at the mask moved by (dy, dx) and stretched (`warp_mask`), on lit
+    table pixels only (never on the arms, the cube or the background)."""
     out = remove_shadows(img, det, strength)
     if not det["shadow"].any():
         return out
-    moved = torch.roll(det["shadow"], shifts=(dy, dx), dims=(0, 1))
+    moved = warp_mask(det["shadow"], dy, dx, angle, length, width)
     table = det["lit"] | det["shadow"]
     m = _soften(moved & table) * strength
     return (out * (1 - m * (1 - det["factor"]))).clamp(0, 1)
@@ -165,12 +208,20 @@ class ShadowEdit(Transform):
         p: probability of editing a frame at all.
         p_remove: probability of removing instead of moving the shadows (if edited).
         max_shift: maximum shift as a fraction of the image size.
+        length: (min, max) scale of the shadows along a random direction.
+        width: (min, max) scale across that direction.
         strength: (min, max) of the edit strength, 1 = complete.
+
+    The stretch ranges are plausible changes of the light position, chosen without looking at the test suite's
+    light-direction levels (which would tune the augmentation to the test).
     """
 
-    def __init__(self, p: float = 0.5, p_remove: float = 0.5, max_shift: float = 0.08, strength=(0.6, 1.0)) -> None:
+    def __init__(self, p: float = 0.5, p_remove: float = 0.5, max_shift: float = 0.08, length=(0.7, 1.5),
+                 width=(0.85, 1.15), strength=(0.6, 1.0)) -> None:
         super().__init__()
         self.p = float(p)
+        self.length = (float(length[0]), float(length[1]))
+        self.width = (float(width[0]), float(width[1]))
         self.p_remove = float(p_remove)
         self.max_shift = float(max_shift)
         self.strength = (float(strength[0]), float(strength[1]))
@@ -181,6 +232,9 @@ class ShadowEdit(Transform):
             "remove": torch.rand(1).item() < self.p_remove,
             "shift": (torch.rand(2) * 2 - 1).tolist(),
             "strength": torch.empty(1).uniform_(*self.strength).item(),
+            "angle": torch.rand(1).item() * math.pi,
+            "length": torch.empty(1).uniform_(*self.length).item(),
+            "width": torch.empty(1).uniform_(*self.width).item(),
         }
 
     def transform(self, inpt, params: dict):
@@ -196,7 +250,8 @@ class ShadowEdit(Transform):
             return remove_shadows(inpt, det, params["strength"])
         h, w = inpt.shape[-2:]
         dy, dx = (round(params["shift"][0] * self.max_shift * h), round(params["shift"][1] * self.max_shift * w))
-        return shift_shadows(inpt, det, dy, dx, params["strength"])
+        return shift_shadows(inpt, det, dy, dx, params["strength"], params["angle"], params["length"],
+                             params["width"])
 
 
 # Large enough that LeRobot's RandomSubsetApply (weighted sampling without replacement) always picks ShadowEdit, so

@@ -1,6 +1,6 @@
 import torch
 
-from avr.shadow_aug import ShadowEdit, detect_shadows, lerobot_flags, remove_shadows, shift_shadows
+from avr.shadow_aug import ShadowEdit, detect_shadows, lerobot_flags, remove_shadows, shift_shadows, warp_mask
 
 TABLE, FACTOR = 0.30, 0.83
 
@@ -39,6 +39,24 @@ def test_shift_moves_the_shadow_on_the_table_only():
     assert out[:, 60, 45].max() < 0.95 * TABLE  # new shadow position
     assert abs(out[:, 60, 85].max() - TABLE) < 0.01  # old position is lit again
     assert torch.equal(out[:, :20], img[:, :20])  # background unchanged
+
+
+def test_warp_stretches_each_shadow_around_its_center():
+    import math
+
+    mask = torch.zeros(120, 160, dtype=torch.bool)
+    mask[50:70, 60:90] = True  # 20 x 30
+    mask[10:16, 10:16] = True  # a second, small shadow
+    out = warp_mask(mask, dy=0, dx=0, angle=0.0, length=1.5, width=0.8)
+    ys, xs = torch.nonzero(out[30:, 40:], as_tuple=True)
+    assert abs((xs.max() - xs.min() + 1) - 45) <= 1 and abs((ys.max() - ys.min() + 1) - 16) <= 1
+    assert abs((ys.float().mean() + 30) - 59.5) < 0.6 and abs((xs.float().mean() + 40) - 74.5) < 0.6  # same center
+    assert out[10:16, 10:16].any()  # the other shadow stays where it was
+    vertical = warp_mask(mask, dy=0, dx=0, angle=math.pi / 2, length=1.5, width=1.0)
+    ys, _ = torch.nonzero(vertical[30:], as_tuple=True)
+    assert abs((ys.max() - ys.min() + 1) - 30) <= 1
+    shifted = warp_mask(mask, dy=5, dx=-7)
+    assert torch.equal(shifted, torch.roll(mask, (5, -7), (0, 1)))
 
 
 def test_transform_handles_batches_and_skips_frames():
