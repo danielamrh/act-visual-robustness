@@ -21,7 +21,8 @@ with purely visual perturbations, and works out **what each policy actually reli
    perturbation and barely changes its actions; distractors move frozen DINOv2's features little and flip its decision.
 4. **A 10-minute probe predicts a new policy's weak spots.** Replaying clean actions under each perturbation (states stay
    identical, only pixels change) and measuring the shift of the predicted action chunk ranks the closed-loop damage.
-   Pre-registered on finetuned DINOv2 before running its suite: Spearman ρ = −0.72 (p = 7e-5).
+   Pre-registered on finetuned DINOv2 before running its suite: Spearman ρ = −0.72 (p = 7e-5); on the augmented
+   baseline (probe unchanged, not pre-registered) ρ = −0.80.
 5. **Standard augmentation is not a free fix.** LeRobot's image augmentation (color jitter, sharpness, small affine)
    made the baseline robust to blur and camera shifts at no significant clean cost, but its shadow dependence got much
    worse (shadows off: 51 % → 9 % of clean success retained) and distractors became a new weakness.
@@ -345,6 +346,28 @@ Three predictions held, one partly, two failed, and the failures are the interes
   stronger dependence on the one cue it cannot touch**, which is exactly the motivation for run B: augment the shadows
   themselves.
 
+**Probe** (step 2d, unchanged; run after the suite): the augmented policy's internals show the same picture.
+
+| Probe (feature → action shift) | Baseline | + augmentation |
+|---|---|---|
+| light intensity, level 4 | 0.126 → 0.023 | **0.099 → 0.017** |
+| table color, level 4 | 0.076 → 0.023 | **0.048 → 0.019** |
+| shadows off | 0.135 → 0.040 | **0.176 → 0.045** |
+| light direction, level 3 | 0.138 → 0.038 | **0.170** → 0.040 |
+| blur, level 4 | 0.326 → 0.053 | 0.289 → **0.037** |
+| camera pose, level 4 | 0.394 → 0.052 | 0.395 → **0.040** |
+| distractors, level 4 | 0.104 → 0.017 | 0.100 → 0.015 |
+
+* **Photometric invariance is learned in the encoder:** the features move much less under brightness and color changes.
+* **Shadows move the features more than before** (+30 % for shadows off), and among all perturbations except strong
+  noise, shadows off now causes the largest action shift; for the baseline, blur and camera pose were larger.
+* **Blur and camera robustness sit after the encoder:** the features move about as much as the baseline's, but
+  the predicted actions much less. This is why for this policy the action shift predicts the suite damage well
+  (ρ = −0.80, the best of all policies) and the feature shift poorly (ρ = −0.43).
+* **The probe misses the distractor weakness:** distractors barely change the actions along the clean trajectory, yet
+  cost half of the success in closed loop. The replay probe only sees states of the clean run; distractors seem to
+  matter once the trajectory has drifted, or only in short moments such as the grasp.
+
 ### Step 3b · Shadow augmentation: remove or move the shadows in the training images (pre-registered)
 
 *Written before training (git history has the timestamp).*
@@ -455,6 +478,8 @@ ResNet's 300. Train a variant with notebook 02 (`VARIANT = "dinov2_vits14_frozen
   things at once (removing, moving and stretching shadows), so A vs. B shows the effect of the shadow edit as a whole;
   which part contributes how much would need further runs.
 * **Severity levels are calibrated by eye** per factor; levels are comparable within a factor, not across factors.
+* **The replay probe sees only states of the clean trajectory**, so failures that build up in closed loop (the
+  augmented policy's distractor weakness) are missed.
 * **Occlusion maps come from one seed per policy**, and ACT's decoder cross-attention turned out to be diffuse, so it is
   not used as an explanation.
 
