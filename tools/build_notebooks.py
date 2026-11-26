@@ -276,7 +276,13 @@ elif VARIANT == "baseline_shadowaug":
     from avr.shadow_aug import lerobot_flags
     RUN_NAME, POLICY_TYPE, POLICY_ARGS = SHADOW_AUG_RUN_NAME, "act", {}
     EXTRA = lerobot_flags()  # run A's transforms + ShadowEdit (edits half the frames: remove or move shadows)
-    import lerobot_policy_act_enc  # registers ShadowEdit; fails here, not after the setup, if the plugin is missing
+    # lerobot-train runs in a new process, which loads the act_enc plugin (installed by the setup) and with it
+    # ShadowEdit; check that here instead of hours later (this kernel itself cannot import the fresh editable install)
+    import subprocess, sys
+    subprocess.run([sys.executable, "-c", "from lerobot.utils.import_utils import register_third_party_plugins as r; "
+                    "r(); from lerobot.transforms.transforms import _CUSTOM_TRANSFORMS as T; "
+                    "assert 'ShadowEdit' in T, 'ShadowEdit is not registered'; print('ShadowEdit registered')"],
+                   check=True)
 else:
     encoder, mode = VARIANT.rsplit("_", 1)
     assert mode in ("frozen", "ft"), VARIANT
