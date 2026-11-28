@@ -26,6 +26,10 @@ with purely visual perturbations, and works out **what each policy actually reli
 5. **Standard augmentation is not a free fix.** LeRobot's image augmentation (color jitter, sharpness, small affine)
    made the baseline robust to blur and camera shifts at no significant clean cost, but its shadow dependence got much
    worse (shadows off: 51 % → 9 % of clean success retained) and distractors became a new weakness.
+6. **Editing the shadows in the training images did not remove the dependence (pre-registered, failed).** Our own
+   shadow augmentation (detect, remove, move and stretch the shadows; validated against simulation ground truth, IoU 0.92)
+   kept run A's gains and the baseline's clean rate (78.2 %), but shadows off still leaves 12 % of clean success
+   (predicted: ≥ 50 %), and the probe shows the actions react to missing shadows even more strongly than before.
 
 ![Success retained relative to each policy's clean rate (same seeds), per perturbation and severity](results/robustness_curves_relative.png)
 
@@ -36,6 +40,7 @@ with purely visual perturbations, and works out **what each policy actually reli
 | ACT, DINOv2 ViT-S/14, frozen | 45.8 % | 20.2 % | distractors, background, camera pose, shadows | blur, color, lighting |
 | ACT, DINOv2 ViT-S/14, finetuned | 32.8 % | 35.2 % | brightness, light / table color, camera pose | noise, distractors, shadows |
 | ACT, ResNet18, finetuned **+ image augmentation** | 73.4 % | 0.4 % | shadows / light direction (stronger), noise, JPEG, distractors | blur, camera pose, color, background |
+| ACT, ResNet18, finetuned **+ image augmentation + shadow edit** | 78.2 % | 0.2 % | shadows / light direction (unchanged), noise, JPEG, distractors | blur, camera pose, color, background |
 | ACT, DINOv2 ViT-S/14 at 2× resolution, frozen | *paused at 16k steps* | | | |
 
 <table>
@@ -68,7 +73,7 @@ gripper; frozen DINOv2 (bottom) depends on the whole table and background.*
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
 | 2 · Analysis | Perturbation suite + shadow diagnostics ✅; encoders: DINOv2 frozen ✅, finetuned ✅, 2× resolution 🚧, ResNet18 from scratch / CLIP / SigLIP ⏳; replay probe + occlusion maps ✅ | 🚧 |
-| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation ✅, (B) shadow augmentation 🚧 (validated, training) | 🚧 |
+| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation ✅, (B) shadow augmentation ✅ (prediction failed); (C) training on re-rendered shadow-free demos ⏳ | 🚧 |
 
 ## Detailed results
 
@@ -425,6 +430,56 @@ distractors 66 / 49 % (levels 3 / 4).
 If 2 fails, the faint outlines left by the removal, or the shadows in the unedited half of the frames, are enough for
 the policy to keep using them; the occlusion maps and the replay probe (notebook 04) would then show whether the
 policy still looks at the shadow regions.
+
+#### Outcome: no less shadow dependence, and the actions react to shadows even more strongly
+
+Trained on Kaggle (T4, 0.32 s/step, the shadow edit costs ~3 % speed). Clean: **78.2 %** (95 % CI 74.4–81.6 %). Paired
+on the same 500 seeds: better than run A (only A succeeds in 35 episodes, only B in 59, p = 0.017), level with the
+baseline (66 vs. 70, p = 0.8). Suite, success retained relative to clean on the same seeds (run B: 80 % clean on seeds
+1000–1049):
+
+| Prediction | Target | Run A | **Run B** | |
+|---|---|---|---|---|
+| 1 · clean success | within ±5 points of 73.4 % | 73.4 % | 78.2 % | ✅ (at the edge; better than A, p = 0.017) |
+| 2 · **shadows off** | ≥ 50 %, significant vs. A | 9 % | **12 %** (5 / 50, p_Holm = 2.5e-8) | ❌ |
+| 3 · light direction, levels 3 / 4 | ≥ 40 % | 14 / 9 % | **20 / 10 %** (levels 1–4: 50 / 25 / 20 / 10 %) | ❌ |
+| 4 · rotation without shadows ≈ shadows off | same dependence | 9 / 9 / 9 / 6 % | 10 / 12 / 15 / 12 % | ✅ (both unchanged) |
+| 5 · blur level 4, camera pose levels 3 / 4 | ≥ 75 % | 83 / 83 / 86 % | 90 / 82 / 77 % | ✅ |
+| distractors, levels 3 / 4 | (no prediction) | 66 / 49 % | 62 / 62 % | |
+
+The main prediction failed clearly: editing the shadows in the training images did **not** reduce the policy's
+dependence on them. Run A's gains (blur, camera pose) are kept and the clean rate recovered to the baseline's, but
+with one training seed per run (baseline vs. reference checkpoint, same recipe: 6 points apart) the clean gain over A
+is not evidence that the edit helps.
+
+**Probe** (as for run A, unchanged):
+
+| feature → action shift | Baseline | Run A | **Run B** |
+|---|---|---|---|
+| shadows off | 0.135 → 0.040 | 0.176 → 0.045 | 0.152 → **0.059** |
+| light direction, level 3 | 0.138 → 0.038 | 0.170 → 0.040 | 0.151 → **0.052** |
+| blur, level 4 | 0.326 → 0.053 | 0.289 → 0.037 | 0.251 → 0.039 |
+| camera pose, level 4 | 0.394 → 0.052 | 0.395 → 0.040 | 0.360 → 0.032 |
+
+The edit made the encoder slightly *less* sensitive to shadows (feature shift 0.176 → 0.152), but the predicted actions
+react *more* strongly when they are gone: shadows off now moves run B's actions more than any other policy's, and more
+than any of its other perturbations except the strongest noise and JPEG levels. The probe again ranks the damage
+(Spearman ρ = −0.75 for the action shift, −0.40 for the feature shift). In the occlusion map, run B's sensitivity with
+shadows off concentrates on the empty table in front of the gripper, where its shadow would normally be (one seed,
+qualitative only).
+
+![Occlusion sensitivity of the shadow-edited policy](results/occlusion_resnet18_shadowaug.png)
+
+**Our reading** (not tested yet). The edit mostly *weakened* shadows instead of removing them: only a quarter of the
+frames had them removed, at 60–100 % strength, and even full strength leaves about a third of the contrast and the
+outlines at the edges (see validation). Training on faint shadows may have taught the policy to pick up weak shadow
+signals rather than to do without them, so "no shadows at all" stayed out of distribution. The alternative is that
+for this policy the shadow is the height signal it needs, not a shortcut: the failures with shadows off are mostly
+missed grasps (38 %) or never touching the cube (24 %), which fits a missing height cue, although the arm's joint
+angles carry the same information. The two readings make different predictions for one more run: training on
+demonstrations **re-rendered without shadows** (possible in simulation, because the recorded states can be replayed)
+removes the first explanation. If shadows off still fails after that, the policy needs the shadow; if not, our
+image-space edit was simply not strong enough.
 
 ## Perturbation suite
 
