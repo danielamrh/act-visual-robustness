@@ -164,5 +164,5 @@ def plot_robustness(results: dict[str, dict], clean_rates: dict[str, float] | No
     fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=TEXT_PRIMARY)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     if path:
-        fig.savefig(path, dpi=150, facecolor=SURFACE)
+        fig.savefig(path, dpi=150, facecolor=SURFACE, bbox_inches="tight")  # long legend labels stay inside
     return fig
