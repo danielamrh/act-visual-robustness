@@ -73,7 +73,7 @@ gripper; frozen DINOv2 (bottom) depends on the whole table and background.*
 |---|---|---|
 | 1 · Baseline | Reproduce ACT on `AlohaTransferCube-v0` (pretrained checkpoint + own training) | ✅ |
 | 2 · Analysis | Perturbation suite + shadow diagnostics ✅; encoders: DINOv2 frozen ✅, finetuned ✅, 2× resolution 🚧, ResNet18 from scratch / CLIP / SigLIP ⏳; replay probe + occlusion maps ✅ | 🚧 |
-| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation ✅, (B) shadow augmentation ✅ (prediction failed); (C) training on re-rendered shadow-free demos ⏳ | 🚧 |
+| 3 · Method | Targeted modification derived from the analysis: (A) standard image augmentation ✅, (B) shadow augmentation ✅ (prediction failed); (C) diagnostic: training on re-rendered shadow-free demos 🚧 (built, pre-registered) | 🚧 |
 
 ## Detailed results
 
@@ -480,6 +480,45 @@ angles carry the same information. The two readings make different predictions f
 demonstrations **re-rendered without shadows** (possible in simulation, because the recorded states can be replayed)
 removes the first explanation. If shadows off still fails after that, the policy needs the shadow; if not, our
 image-space edit was simply not strong enough.
+
+### Step 3c · Diagnostic: training on demonstrations rendered without shadows (pre-registered)
+
+*Written before training (git history has the timestamp).*
+
+Run C separates the two readings above. It is a **diagnostic, not a method**: it uses the simulator to produce
+perfectly shadow-free training images, which a real robot cannot do.
+
+**Data** (`src/avr/noshadow_data.py`). The human demonstrations were recorded in the same simulation, so they can be
+re-created: the cube's start position is read from the first frame (homography from renders at known positions,
+error < 0.2 px), and the recorded actions are replayed. Checked against the recorded video, frame by frame:
+
+| | 50 demonstrations |
+|---|---|
+| image difference to the recording (mean absolute, per demonstration) | median 0.6 / 255, max 0.9 / 255 |
+| cube position, largest deviation in any frame | median 3 px; **43 demonstrations ≤ 8 px**, 7 drift (up to 108 px) |
+| replay still solves the task | 48 / 50 |
+
+Contacts make a few replays drift; those 7 get no shadow-free copy, so an image never contradicts the recorded states
+and actions. Run C trains on **run A's data (all 50 recorded demonstrations) plus shadow-free renders of the other 43**,
+rendered with the shadow-casting light switched off (exactly the suite's `shadows_off`), with run A's augmentation and
+recipe. About 46 % of the training frames have no shadows at all, and these are real renders, not edited images.
+
+**Prediction** (C vs. A, paired):
+
+1. **Clean success stays within ±5 points** of run A's 73.4 %.
+2. **Shadows off improves strongly: C retains ≥ 60 %** of its clean success (A: 9 %, B: 12 %), significant vs. A after
+   Holm correction. Our expectation is reading 1 (the edit in run B was too weak): the policy also receives the arm's
+   joint angles, so the height is not lost without shadows, and on almost half of the training frames relying on
+   shadows is impossible.
+3. **The rotations without shadows improve as much as shadows off.**
+4. **Light direction improves less** (levels 3–4 retain ≥ 30 %; A: 14 / 9 %): C never sees moved shadows, only present or
+   absent ones, so a rotated light still shows shadows in unfamiliar places.
+5. **Run A's gains are kept:** blur level 4 and camera pose levels 3–4 retain ≥ 75 %.
+6. **Probe:** the action shift for shadows off falls below the baseline's (≤ 0.030; A: 0.045, B: 0.059).
+
+**How we will read it:** if shadows off retains ≤ 25 % despite training on real shadow-free frames, reading 2 holds:
+this policy cannot do the task without shadows from this camera, and no image-space augmentation would have helped.
+Between 25 and 60 %, both contribute.
 
 ## Perturbation suite
 

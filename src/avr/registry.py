@@ -13,6 +13,7 @@ from typing import NamedTuple
 BASE_RUN_NAME = "act_transfer_cube_human_resnet18_s1000"
 AUG_RUN_NAME = "act_transfer_cube_human_resnet18_aug_s1000"  # baseline recipe + LeRobot image augmentation
 SHADOW_AUG_RUN_NAME = "act_transfer_cube_human_resnet18_shadowaug_s1000"  # run A + shadow removal / shift
+SHADOW_PAIRS_RUN_NAME = "act_transfer_cube_human_resnet18_shadowpairs_s1000"  # run A on demos rendered w/ + w/o shadows
 VARIANT_PREFIX, VARIANT_SUFFIX = "actenc_transfer_cube_human_", "_s1000"
 FINAL_STEP = "100000"
 # fixed order (and thus fixed figure colors) for the planned variants; others are appended
@@ -69,6 +70,13 @@ def policy_registry(drive_root: str) -> dict[str, PolicyPaths]:
         f"{shadow}/eval/step{FINAL_STEP}_n500_seed1000",
         f"{probe}/ours_resnet18_shadowaug_s1000_100k",
     )
+    pairs = f"{runs}/{SHADOW_PAIRS_RUN_NAME}"
+    registry["ours, ResNet18 ImageNet + augmentation + shadow-free renders (100k)"] = PolicyPaths(
+        f"{pairs}/checkpoints/{FINAL_STEP}/pretrained_model",
+        f"{rob}/ours_resnet18_shadowpairs_s1000_100k",
+        f"{pairs}/eval/step{FINAL_STEP}_n500_seed1000",
+        f"{probe}/ours_resnet18_shadowpairs_s1000_100k",
+    )
     return registry
 
 
@@ -87,6 +95,7 @@ FIXED_COLORS = {
     "ours, ResNet18 ImageNet + augmentation (100k)": "#4a3aa7",  # violet
     "ours, dinov2_vits14_hr_frozen (100k)": "#e87ba4",           # magenta
     "ours, ResNet18 ImageNet + augmentation + shadow edit (100k)": "#008300",  # green
+    "ours, ResNet18 ImageNet + augmentation + shadow-free renders (100k)": "#e34948",  # red
 }
 
 
@@ -95,7 +104,8 @@ def policy_colors(registry: dict) -> dict[str, str]:
     matter which subset a plot shows (or which empty run folders exist on Drive)."""
     from avr.analysis.robustness import SERIES_COLORS
 
-    spare = [c for c in SERIES_COLORS if c not in FIXED_COLORS.values()]
+    # all palette slots are taken by the fixed policies; anything else (unreported variants) is neutral grey
+    spare = [c for c in SERIES_COLORS if c not in FIXED_COLORS.values()] or ["#8a8984", "#b5b4af"]
     others = [label for label in registry if label not in FIXED_COLORS]
     colors = {label: FIXED_COLORS[label] for label in registry if label in FIXED_COLORS}
     colors.update({label: spare[i % len(spare)] for i, label in enumerate(others)})

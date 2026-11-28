@@ -263,10 +263,14 @@ from avr.train_log import read_train_log, seconds_per_step
 # "resnet18_scratch_ft", "clip_vitb16_frozen", "siglip_vitb16_frozen" (encoders: src/avr/encoders.py)
 # "baseline_aug" = the baseline recipe with LeRobot's image augmentation switched on (step 3, run A)
 # "baseline_shadowaug" = run A + removing / moving the table shadows (step 3, run B; src/avr/shadow_aug.py)
+# "baseline_shadowpairs" = run A on the demos re-rendered with and without shadows (step 3, run C;
+#                          src/avr/noshadow_data.py; this cell builds the dataset first, ~40 min)
 VARIANT    = "baseline"
 
-from avr.registry import AUG_RUN_NAME, BASE_RUN_NAME, SHADOW_AUG_RUN_NAME
+from avr.registry import AUG_RUN_NAME, BASE_RUN_NAME, SHADOW_AUG_RUN_NAME, SHADOW_PAIRS_RUN_NAME
 EXTRA = []  # extra lerobot-train flags
+DATASET    = "lerobot/aloha_sim_transfer_cube_human"
+PAIRS_ROOT = None  # local dataset folder (run C)
 if VARIANT == "baseline":
     RUN_NAME, POLICY_TYPE, POLICY_ARGS = BASE_RUN_NAME, "act", {}
 elif VARIANT == "baseline_aug":
@@ -283,13 +287,26 @@ elif VARIANT == "baseline_shadowaug":
                     "r(); from lerobot.transforms.transforms import _CUSTOM_TRANSFORMS as T; "
                     "assert 'ShadowEdit' in T, 'ShadowEdit is not registered'; print('ShadowEdit registered')"],
                    check=True)
+elif VARIANT == "baseline_shadowpairs":
+    from avr.noshadow_data import REPO_ID
+    RUN_NAME, POLICY_TYPE, POLICY_ARGS = SHADOW_PAIRS_RUN_NAME, "act", {}
+    DATASET, PAIRS_ROOT = REPO_ID, f"{WORK}/data/shadowpairs"
+    EXTRA = ["--dataset.image_transforms.enable=true", f"--dataset.root={PAIRS_ROOT}"]  # run A's transforms
+    if not os.path.exists(f"{PAIRS_ROOT}/meta/info.json"):  # build once per session (~40 min, also when resuming)
+        import shutil, sys
+        from avr.colab import run_streaming
+        shutil.rmtree(PAIRS_ROOT, ignore_errors=True)
+        report_dir = f"{DRIVE_ROOT}/runs/{RUN_NAME}"
+        os.makedirs(report_dir, exist_ok=True)
+        run_streaming([sys.executable, "-m", "avr.noshadow_data", "--root", PAIRS_ROOT],
+                      log_path=f"{report_dir}/shadowpairs_build.log")
+        shutil.copyfile(f"{PAIRS_ROOT}/build_report.json", f"{report_dir}/shadowpairs_build_report.json")
 else:
     encoder, mode = VARIANT.rsplit("_", 1)
     assert mode in ("frozen", "ft"), VARIANT
     RUN_NAME = f"actenc_transfer_cube_human_{VARIANT}_s1000"
     POLICY_TYPE, POLICY_ARGS = "act_enc", {"encoder": encoder, "freeze_encoder": mode == "frozen"}
-print("run:", RUN_NAME, "| policy:", POLICY_TYPE, POLICY_ARGS, EXTRA)
-DATASET    = "lerobot/aloha_sim_transfer_cube_human"
+print("run:", RUN_NAME, "| policy:", POLICY_TYPE, POLICY_ARGS, "| data:", DATASET, EXTRA)
 TASK       = "AlohaTransferCube-v0"
 STEPS      = 100_000  # as the reference checkpoint's train_config.json (model card says 80k)
 BATCH_SIZE = 8
@@ -422,8 +439,10 @@ ours = successes(eval_root)
 references = {"pretrained": f"{DRIVE_ROOT}/eval/pretrained_transfer_cube/n500_seed1000"}
 if VARIANT != "baseline":  # encoder variants: compare with our own baseline, same recipe
     references["baseline"] = f"{DRIVE_ROOT}/runs/{BASE_RUN_NAME}/eval/step100000_n500_seed1000"
-if VARIANT == "baseline_shadowaug":  # run B vs. run A: the effect of the shadow edit alone
+if VARIANT in ("baseline_shadowaug", "baseline_shadowpairs"):  # vs. run A: the effect of the shadow treatment alone
     references["baseline_aug"] = f"{DRIVE_ROOT}/runs/{AUG_RUN_NAME}/eval/step100000_n500_seed1000"
+if VARIANT == "baseline_shadowpairs":
+    references["baseline_shadowaug"] = f"{DRIVE_ROOT}/runs/{SHADOW_AUG_RUN_NAME}/eval/step100000_n500_seed1000"
 for name, root in references.items():
     if not chunk_info_paths(root):  # e.g. on Kaggle, where the earlier evaluations are not available
         print(f"{name}: no evaluation at {root}, skipped")
